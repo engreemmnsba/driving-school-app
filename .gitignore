@@ -1,0 +1,32 @@
+# Private / local only — never commit
+launch/
+.emulator-data/
+*.jks
+*.keystore
+key.properties
+**/android/local.properties
+**/android/app/google-services.json
+service-account*.json
+prod-key*.json
+
+# Build output
+node_modules/
+functions/lib/
+app/build/
+app/.dart_tool/
+.dart_tool/
+.firebase/
+hosting/*
+!hosting/download/
+**/android/.gradle/
+**/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
+# Logs and scratch
+*.log
+check_*.txt
+app/analyze.txt
+app/test.txt
+*.zip
+.idea/
+*.iml
+_github/

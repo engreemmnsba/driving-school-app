@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تنزيل التطبيق</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#0E5A5F; --ink:#14211F; --muted:#55625F; --tonal:#E1EEED; --accent:#F2B705; --warn-bg:#FFF4CC; --warn:#4A3A00; --bg:#FFFFFF; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#E7EEEC; --muted:#A9B6B3; --tonal:#1D3537; --bg:#0F1716; --warn-bg:#3A3215; --warn:#FFE8A3; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans Arabic', system-ui, sans-serif; }
+  main { max-width: 480px; margin: 0 auto; }
+  .hero { background: var(--primary); color: #fff; text-align: center; padding: 28px 24px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  .lang { align-self: flex-start; color: #fff; font-size: 13px; font-weight: 600; }
+  .logo { width: 84px; height: 84px; border-radius: 24px; background: #fff; color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 40px; }
+  h1 { margin: 0; font-size: 24px; }
+  .hero p { margin: 0; font-size: 14px; line-height: 1.7; color: #D5ECEB; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 58px; border-radius: 16px; background: var(--accent); color: #14211F; font-size: 17px; font-weight: 700; text-decoration: none; margin-top: 6px; }
+  .meta { font-size: 12px; color: #D5ECEB; }
+  section { padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+  h2 { margin: 0; font-size: 17px; }
+  .step { display: flex; gap: 12px; align-items: flex-start; }
+  .n { flex-shrink: 0; width: 32px; height: 32px; border-radius: 999px; background: var(--tonal); color: var(--primary); display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  .step b { display: block; font-size: 15px; }
+  .step span { font-size: 13px; line-height: 1.6; color: var(--muted); }
+  .note { margin: 0 24px 24px; padding: 12px 14px; border-radius: 14px; background: var(--warn-bg); color: var(--warn); font-size: 13px; line-height: 1.6; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <a class="lang" href="#" id="lang">English</a>
+    <div class="logo" aria-hidden="true">🚗</div>
+    <h1 id="title">تطبيق مدرسة القيادة</h1>
+    <p id="lead">متابعة الدروس والدفعات ومواعيد الاختبارات من الجوال</p>
+    <a class="btn" id="dl" href="app.apk">⬇ <span id="dlText">تنزيل لأندرويد</span></a>
+    <span class="meta" id="meta"></span>
+  </div>
+  <section>
+    <h2 id="howTitle">التثبيت بثلاث خطوات</h2>
+    <div class="step"><div class="n">1</div><div><b data-ar="تنزيل الملف" data-en="Download the file">تنزيل الملف</b><span data-ar='زر "تنزيل لأندرويد"، وبعدها انتظار ما يكمل التنزيل.' data-en='Tap "Download for Android" and wait for it to finish.'>زر "تنزيل لأندرويد"، وبعدها انتظار ما يكمل التنزيل.</span></div></div>
+    <div class="step"><div class="n">2</div><div><b data-ar="السماح بالتثبيت" data-en="Allow the install">السماح بالتثبيت</b><span data-ar='لما يطلب الجوال: تفعيل "السماح بالتثبيت من هذا المصدر" والرجوع.' data-en='When asked: turn on "Allow from this source", then go back.'>لما يطلب الجوال: تفعيل "السماح بالتثبيت من هذا المصدر" والرجوع.</span></div></div>
+    <div class="step"><div class="n">3</div><div><b data-ar="تسجيل الدخول" data-en="Sign in">تسجيل الدخول</b><span data-ar="برقم الهوية وكلمة السر اللي وصلت على واتساب." data-en="With your national ID and the password sent on WhatsApp.">برقم الهوية وكلمة السر اللي وصلت على واتساب.</span></div></div>
+  </section>
+  <div class="note" id="note">التطبيق لأندرويد. للآيفون: فتح <a id="webLink" href="/">نسخة المتصفح</a> وإضافتها للشاشة الرئيسية.</div>
+</main>
+<script>
+  // version.json is written at each release: {"version":"1.1.0","sizeMb":29.6,"date":"2026-10-27","apk":"app.apk","school":"…"}
+  const T = {
+    ar: { title: 'تطبيق مدرسة القيادة', lead: 'متابعة الدروس والدفعات ومواعيد الاختبارات من الجوال', dl: 'تنزيل لأندرويد', how: 'التثبيت بثلاث خطوات', lang: 'English',
+          note: 'التطبيق لأندرويد. للآيفون: فتح <a href="/">نسخة المتصفح</a> وإضافتها للشاشة الرئيسية.', ver: (v) => `الإصدار ${v.version}${v.sizeMb ? ' · ' + v.sizeMb + ' م.ب' : ''}${v.date ? ' · ' + v.date : ''}` },
+    en: { title: 'Driving School app', lead: 'Lessons, payments and exam dates on your phone', dl: 'Download for Android', how: 'Install in three steps', lang: 'العربية',
+          note: 'The app is for Android. On iPhone: open the <a href="/">web version</a> and add it to the Home Screen.', ver: (v) => `Version ${v.version}${v.sizeMb ? ' · ' + v.sizeMb + ' MB' : ''}${v.date ? ' · ' + v.date : ''}` },
+  };
+  let lang = 'ar';
+  let info = null;
+  function render() {
+    const t = T[lang];
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    const name = info && info.school ? info.school : null;
+    document.getElementById('title').textContent = name ? (lang === 'ar' ? 'تطبيق ' + name : name) : t.title;
+    document.getElementById('lead').textContent = t.lead;
+    document.getElementById('dlText').textContent = t.dl;
+    document.getElementById('howTitle').textContent = t.how;
+    document.getElementById('lang').textContent = t.lang;
+    document.getElementById('note').innerHTML = t.note;
+    document.getElementById('meta').textContent = info ? t.ver(info) : '';
+    document.querySelectorAll('[data-ar]').forEach((el) => { el.textContent = el.dataset[lang]; });
+    if (info && info.apk) document.getElementById('dl').href = info.apk;
+  }
+  document.getElementById('lang').addEventListener('click', (e) => { e.preventDefault(); lang = lang === 'ar' ? 'en' : 'ar'; render(); });
+  fetch('version.json', { cache: 'no-store' }).then((r) => r.ok ? r.json() : null).then((v) => { info = v; render(); }).catch(() => render());
+  render();
+</script>
+</body>
+</html>

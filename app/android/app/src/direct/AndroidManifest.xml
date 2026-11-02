@@ -1,0 +1,5 @@
+<!-- Permissions only the `direct` (outside Play) build declares. The `play` build never includes these. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>

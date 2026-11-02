@@ -1,0 +1,60 @@
+// Keeps the web app's own files on the device so it opens without internet.
+// Strategy: answer from the saved copy at once (fast start, works offline) and refresh the copy
+// in the background; a new release is picked up on the next open.
+// Never touches Firebase traffic (Auth, Firestore, Functions) — the app syncs that itself.
+const CACHE = 'ds-app-v1';
+const SHELL = ['./', 'index.html', 'flutter_bootstrap.js', 'main.dart.js', 'manifest.json', 'icons/Icon-192.png'];
+// Flutter engine + Firebase JS SDK come from Google's CDN with versioned URLs: safe to keep.
+const CDN = ['https://www.gstatic.com/flutter-canvaskit/', 'https://www.gstatic.com/firebasejs/'];
+
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys()
+      // Old copies: ours from an earlier version, and Flutter's own worker (replaced by this one).
+      .then((keys) => Promise.all(keys
+        .filter((k) => (k.startsWith('ds-app-') && k !== CACHE) || k.startsWith('flutter-'))
+        .map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  const sameOrigin = url.origin === self.location.origin;
+  if (sameOrigin && (url.pathname.startsWith('/download/') || url.pathname.startsWith('/__/'))) return;
+
+  if (CDN.some((p) => req.url.startsWith(p))) {
+    // Versioned files: saved copy first, network only the first time.
+    e.respondWith(caches.open(CACHE).then(async (c) => {
+      const hit = await c.match(req);
+      if (hit) return hit;
+      const res = await fetch(req);
+      if (res.ok || res.type === 'opaque') c.put(req, res.clone());
+      return res;
+    }));
+    return;
+  }
+  if (!sameOrigin) return;
+
+  // Pages (any app route) → the saved index.html.
+  const key = req.mode === 'navigate' ? 'index.html' : req;
+  e.respondWith(caches.open(CACHE).then(async (c) => {
+    const hit = await c.match(key);
+    const fresh = fetch(req).then((res) => {
+      if (res.ok) c.put(key, res.clone());
+      return res;
+    }).catch(() => undefined);
+    if (hit) {
+      e.waitUntil(fresh);
+      return hit;
+    }
+    const res = await fresh;
+    return res ?? new Response('offline', { status: 503 });
+  }));
+});

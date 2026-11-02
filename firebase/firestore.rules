@@ -1,0 +1,96 @@
+rules_version = '2';
+// Clients NEVER write: the only write path is the applyOps Cloud Function (Admin SDK bypasses rules).
+// Reads are scoped with custom claims set by setUserClaims:
+//   schoolId, kind ('admin'|'staff'|'instructor'|'student'), money (bool), balances (bool),
+//   payroll (bool), carIds (list), studentId (students only), cashbook ('today'|'all').
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function claims() { return request.auth.token; }
+    function inSchool(s) { return signedIn() && claims().schoolId == s; }
+    function isAdmin() { return claims().kind == 'admin'; }
+    function today() { return request.time.toMillis(); }
+
+    match /schools/{s} {
+      match /{document=**} { allow write: if false; }
+
+      // Own user doc (name, permissions shown in the app); admins and user managers read all users.
+      match /user/{id}           { allow read: if inSchool(s) && (id == request.auth.uid || isAdmin() || claims().users == true); }
+
+      // Catalog everyone in the school may read.
+      match /license_type/{id}   { allow read: if inSchool(s); }
+      match /car/{id}            { allow read: if inSchool(s); }
+      // Staff names / car assignment (shown on Home and lesson screens); never students. (No salaries here: salary_rate.)
+      match /employee/{id}       { allow read: if inSchool(s) && claims().kind != 'student'; }
+      match /car_instructor/{id} { allow read: if inSchool(s) && claims().kind != 'student'; }
+      match /setting/{id}        { allow read: if inSchool(s); }
+      match /meta/head           { allow read: if inSchool(s); }
+      match /month_lock/{id}     { allow read: if inSchool(s) && claims().kind != 'student'; }
+      // Prices are money.
+      match /license_price/{id}  { allow read: if inSchool(s) && (isAdmin() || claims().money == true); }
+
+      // Students: staff with access, instructors only their cars, students only themselves.
+      match /enrollment/{id} {
+        allow read: if inSchool(s) && (
+          isAdmin() || claims().kind == 'staff'
+          || (claims().kind == 'instructor' && resource.data.carId in claims().carIds)
+          || (claims().kind == 'student' && resource.data.studentId == claims().studentId));
+      }
+      // scopeCarId = the enrollment's car (theory lessons/exams have no carId of their own).
+      match /lesson/{id} {
+        allow read: if inSchool(s) && (
+          isAdmin() || claims().kind == 'staff'
+          || (claims().kind == 'instructor' && resource.data.scopeCarId in claims().carIds)
+          || (claims().kind == 'student' && resource.data.studentId == claims().studentId));
+      }
+      match /exam/{id} {
+        allow read: if inSchool(s) && (
+          isAdmin() || claims().kind == 'staff'
+          || (claims().kind == 'instructor' && resource.data.scopeCarId in claims().carIds)
+          || (claims().kind == 'student' && resource.data.studentId == claims().studentId));
+      }
+      match /student/{id} {
+        // instructors never read student docs (national ID, phone); they get the name from enrollment.studentName
+        allow read: if inSchool(s) && (isAdmin() || claims().kind == 'staff' || (claims().kind == 'student' && id == claims().studentId));
+      }
+
+      // Student money: never instructors.
+      match /student_ledger/{id} {
+        allow read: if inSchool(s) && (isAdmin() || (claims().kind == 'staff' && claims().money == true)
+          || (claims().kind == 'student' && resource.data.studentId == claims().studentId));
+      }
+      match /student_summary/{id} {
+        allow read: if inSchool(s) && (isAdmin() || (claims().kind == 'staff' && claims().money == true)
+          || (claims().kind == 'student' && resource.data.studentId == claims().studentId));
+      }
+
+      // Treasury: balances only with permission; movements: all periods or today only.
+      match /treasury_account/{id} { allow read: if inSchool(s) && (isAdmin() || claims().money == true); }
+      match /account_balance/{id}  { allow read: if inSchool(s) && (isAdmin() || claims().balances == true); }
+      match /treasury_movement/{id} {
+        allow read: if inSchool(s) && (isAdmin() || claims().cashbook == 'all'
+          || (claims().cashbook == 'today' && resource.data.serverTime is string
+              && timestamp.date(int(resource.data.businessDate.split('-')[0]), int(resource.data.businessDate.split('-')[1]), int(resource.data.businessDate.split('-')[2])) >= timestamp.date(request.time.year(), request.time.month(), request.time.day()) - duration.value(1, 'd')));
+      }
+
+      // Expenses and day closing.
+      match /expense/{id}         { allow read: if inSchool(s) && (isAdmin() || claims().exp == true); }
+      match /day_close/{id}       { allow read: if inSchool(s) && (isAdmin() || claims().close == true); }
+      match /day_close_count/{id} { allow read: if inSchool(s) && (isAdmin() || claims().close == true); }
+
+      // Payroll.
+      match /payroll_item/{id}   { allow read: if inSchool(s) && (isAdmin() || claims().payroll == true); }
+      match /salary_payment/{id} { allow read: if inSchool(s) && (isAdmin() || claims().payroll == true); }
+      match /salary_rate/{id}    { allow read: if inSchool(s) && (isAdmin() || claims().payroll == true); }
+
+      // Activity log: everyone with the log permission, own entries or all.
+      match /activity_log/{id} {
+        allow read: if inSchool(s) && (isAdmin() || claims().log == 'all' || (claims().log == 'own' && resource.data.actorId == request.auth.uid));
+      }
+
+      // Never readable by clients.
+      match /ops/{id}          { allow read: if false; }
+      match /rejected_ids/{id} { allow read: if false; }
+    }
+  }
+}
