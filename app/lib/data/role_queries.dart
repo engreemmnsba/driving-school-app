@@ -65,6 +65,7 @@ class StudentHomeData {
     required this.exams,
     required this.lessons,
     required this.payments,
+    this.charges = const [],
   });
   final EnrollmentRow enrollment;
   final String licenseName;
@@ -74,6 +75,12 @@ class StudentHomeData {
   final List<ExamRow> exams;
   final List<LessonRow> lessons;
   final List<LedgerRowData> payments;
+
+  /// Fees and discounts (lesson charges are summed, not listed one by one).
+  final List<LedgerRowData> charges;
+
+  /// Latest exam with a result (for the banner after a failed attempt).
+  ExamRow? get lastResult => exams.where((e) => e.result != 'pending').firstOrNull;
 
   bool get theoryPassed => exams.any((e) => e.type != 'practical' && e.result == 'passed') || !['theory'].contains(enrollment.stage);
   ExamRow? get pendingExam => exams.where((e) => e.result == 'pending').firstOrNull;
@@ -159,8 +166,13 @@ class RoleQueries {
           ..where((t) => t.enrollmentId.equals(e.id) & t.kind.equals('payment') & _ok(t.syncState))
           ..orderBy([(t) => OrderingTerm.desc(t.businessDate)]))
         .get();
+    final charges = await (db.select(db.ledgerEntries)
+          ..where((t) => t.enrollmentId.equals(e.id) & t.kind.isIn(const ['registration_fee', 'exam_fee', 'retake_fee', 'discount']) & _ok(t.syncState))
+          ..orderBy([(t) => OrderingTerm.desc(t.businessDate)]))
+        .get();
     final lt = await (db.select(db.licenseTypes)..where((t) => t.id.equals(e.licenseTypeId))).getSingleOrNull();
     return StudentHomeData(
+      charges: charges,
       enrollment: e,
       licenseName: lt?.name ?? '',
       theoryDone: lessons.where((l) => l.type == 'theory').length,

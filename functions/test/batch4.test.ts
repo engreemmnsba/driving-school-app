@@ -169,7 +169,7 @@ describe('users and permissions', () => {
     expect(after.at(-1)).toEqual({ kind: 'setDisabled', uid: 'salma', disabled: true });
     // Her token may still be valid for a while: her writes are refused at once.
     const [late] = await t.run('salma', [t.op('salma', 'user.status', { userId: 'mahmoud', active: false })]);
-    expect(late).toMatchObject({ status: 'rejected', reason: 'permission_denied', message: 'الحساب موقوف' });
+    expect(late).toMatchObject({ status: 'rejected', reason: 'user_disabled', message: 'الحساب موقوف' });
     const [noAdminPerms] = await t.run('admin', [t.op('admin', 'user.permissions', { userId: 'admin', permissions: { tasks: {} } })]);
     expect(noAdminPerms).toMatchObject({ status: 'rejected' });
   });

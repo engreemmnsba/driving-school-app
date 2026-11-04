@@ -136,13 +136,9 @@ export const salaryPay: Handler = {
     if (net > 0) {
       writes.push({ path: ctx.path('treasury_movement', movementId), mode: 'set', data: { id: movementId, accountId, direction: 'out', amount: net, kind: 'salary', refId: paymentId, note: `راتب ${emp.name as string} ${month}`, businessDate } });
     }
-    const parts = [`راتب ${shekel(salary)}`];
-    if (bonuses) parts.push(`مكافأة ${shekel(bonuses)}`);
-    if (deductions) parts.push(`خصم ${shekel(deductions)}`);
-    if (advances) parts.push(`سلف ${shekel(advances)}`);
     return {
       writes,
-      log: [{ opType: 'create', entity: 'salary_payment', recordId: paymentId, recordLabel: `صرف راتب ${emp.name as string} (${month}) ${shekel(net)} من ${a.name as string}`, changes: [], reason: parts.join(' · ') }],
+      log: [{ opType: 'create', entity: 'salary_payment', recordId: paymentId, recordLabel: `صرف راتب ${emp.name as string} (${month}) ${shekel(net)} من ${a.name as string}`, changes: [] }],
       assigned: { net, salaryAtMonth: salary, early },
     };
   },
@@ -158,6 +154,8 @@ export const employeeSalary: Handler = {
     const fromMonth = monthArg(p, 'fromMonth');
     const amount = money(p, 'monthlyAmount');
     const emp = await mustGet(ctx, 'employee', employeeId);
+    const lock = await ctx.tx.get(ctx.path('month_lock', fromMonth));
+    if (lock && lock.locked !== false) throw new Reject('month_locked', 'الشهر مثبّت · الراتب الجديد بيبدأ من شهر مفتوح');
     const paid = await ctx.tx.query(ctx.col('salary_payment'), { employeeId });
     if (paid.some((x) => (x.payrollMonth as string) >= fromMonth)) {
       throw new Reject('rule_violation', 'راتب هالشهر انصرف · الراتب الجديد بيبدأ من الشهر الجاي');
@@ -168,7 +166,8 @@ export const employeeSalary: Handler = {
       writes: [
         { path: ctx.path('salary_rate', id), mode: 'set', data: { id, employeeId, effectiveFrom: fromMonth, monthlyAmount: amount } },
       ],
-      log: [{ opType: 'edit', entity: 'employee', recordId: employeeId, recordLabel: emp.name as string, changes: [{ field: `الراتب من ${fromMonth}`, old: shekel(old), new: shekel(amount) }] }],
+      // A20: the amount stays in salary_rate (payroll permission); the shared log only says it changed.
+      log: [{ opType: 'edit', entity: 'employee', recordId: employeeId, recordLabel: emp.name as string, changes: [{ field: `الراتب من ${fromMonth}`, old: old ? 'الراتب السابق' : 'بدون راتب', new: 'راتب جديد' }] }],
     };
   },
 };
@@ -191,6 +190,62 @@ export const carAdd: Handler = {
       writes: [{ path: ctx.path('car', carId), mode: 'set', data: { id: carId, name, plate, gearbox, active: true } }],
       log: [{ opType: 'create', entity: 'car', recordId: carId, recordLabel: plate ? `${name} · ${plate}` : name, changes: [] }],
     };
+  },
+};
+
+/**
+ * Renames a car / fixes its plate or gearbox, or stops / restarts it. A stopped car keeps its history;
+ * its instructor links end today. A car with active students can't be stopped (they stay on it).
+ */
+export const carEdit: Handler = {
+  creates: [],
+  async run(ctx) {
+    const p = ctx.op.payload;
+    requireTask(ctx.user, 'settings');
+    const carId = str(p, 'carId');
+    const car = await mustGet(ctx, 'car', carId);
+    const next: Record<string, unknown> = {};
+    const changes: LogChange[] = [];
+    if (p.name !== undefined) {
+      const name = str(p, 'name').trim();
+      if (!name) throw new Reject('invalid_payload', 'اسم السيارة مطلوب');
+      if (name !== car.name) {
+        const same = await ctx.tx.query(ctx.col('car'), { name });
+        if (same.some((c) => c.id !== carId && c.active !== false)) throw new Reject('rule_violation', 'في سيارة بنفس الاسم');
+        next.name = name;
+        changes.push({ field: 'الاسم', old: car.name, new: name });
+      }
+    }
+    if (p.plate !== undefined) {
+      const plate = optStr(p, 'plate')?.trim() || null;
+      if (plate !== (car.plate ?? null)) {
+        next.plate = plate;
+        changes.push({ field: 'رقم اللوحة', old: car.plate ?? '—', new: plate ?? '—' });
+      }
+    }
+    if (p.gearbox !== undefined) {
+      const gearbox = p.gearbox === 'auto' ? 'auto' : 'manual';
+      if (gearbox !== (car.gearbox ?? 'manual')) {
+        next.gearbox = gearbox;
+        changes.push({ field: 'الجير', old: car.gearbox === 'auto' ? 'أوتوماتيك' : 'عادي', new: gearbox === 'auto' ? 'أوتوماتيك' : 'عادي' });
+      }
+    }
+    const writes: Write[] = [];
+    if (typeof p.active === 'boolean' && p.active !== (car.active !== false)) {
+      if (!p.active) {
+        const enrolled = await ctx.tx.query(ctx.col('enrollment'), { carId });
+        const busy = enrolled.filter((e) => !['graduated', 'withdrawn'].includes(e.stage as string)).length;
+        if (busy) throw new Reject('rule_violation', `على هالسيارة ${busy} طلاب شغّالين · ما بتنوقف`);
+        for (const l of await ctx.tx.query(ctx.col('car_instructor'), { carId })) {
+          if (!l.to) writes.push({ path: ctx.path('car_instructor', l.id as string), mode: 'merge', data: { to: ctx.today } });
+        }
+      }
+      next.active = p.active;
+      changes.push({ field: 'الحالة', old: car.active !== false ? 'شغّالة' : 'موقوفة', new: p.active ? 'شغّالة' : 'موقوفة' });
+    }
+    if (!changes.length) throw new Reject('rule_violation', 'ما في تغيير');
+    writes.push({ path: ctx.path('car', carId), mode: 'merge', data: next });
+    return { writes, log: [{ opType: next.active === false ? 'archive' : 'edit', entity: 'car', recordId: carId, recordLabel: (next.name ?? car.name) as string, changes }] };
   },
 };
 
@@ -334,12 +389,12 @@ export const userStatus: Handler = {
   creates: [],
   async run(ctx) {
     const p = ctx.op.payload;
-    requireTask(ctx.user, 'users');
     const userId = str(p, 'userId');
     const active = p.active === true;
     const reason = optStr(p, 'reason')?.trim();
     const u = await mustGet(ctx, 'user', userId);
-    if (u.kind === 'student') throw new Reject('rule_violation', 'حساب الطالب بيتغيّر من ملفه');
+    // A student's login is stopped from the student's file (edit student); staff logins need "users".
+    requireTask(ctx.user, u.kind === 'student' ? 'editStudent' : 'users');
     const was = u.status === 'active';
     if (was === active) throw new Reject('rule_violation', active ? 'الحساب شغّال من قبل' : 'الحساب موقوف من قبل');
     if (!active && u.kind === 'admin') {
@@ -349,10 +404,39 @@ export const userStatus: Handler = {
     }
     const writes: Write[] = [{ path: ctx.path('user', userId), mode: 'merge', data: { status: active ? 'active' : 'disabled' } }];
     if (u.employeeId) writes.push({ path: ctx.path('employee', u.employeeId as string), mode: 'merge', data: { active } });
+    // A stopped instructor leaves their cars today (history kept); re-enabling doesn't put them back.
+    if (!active && u.kind === 'instructor' && u.employeeId) {
+      for (const l of await ctx.tx.query(ctx.col('car_instructor'), { employeeId: u.employeeId })) {
+        if (!l.to) writes.push({ path: ctx.path('car_instructor', l.id as string), mode: 'merge', data: { to: ctx.today } });
+      }
+    }
     return {
       writes,
       after: [{ kind: 'setDisabled', uid: userId, disabled: !active }],
       log: [{ opType: 'permission', entity: 'user', recordId: userId, recordLabel: u.name as string, changes: [{ field: 'الحساب', old: was ? 'شغّال' : 'موقوف', new: active ? 'شغّال' : 'موقوف' }], reason }],
+    };
+  },
+};
+
+/**
+ * Admin-side password reset (A11, no SMS): the phone makes a temporary password, shows it once /
+ * sends it on WhatsApp; the server sets it and signs the person out everywhere. Never stored.
+ */
+export const userResetPassword: Handler = {
+  creates: [],
+  async run(ctx) {
+    const p = ctx.op.payload;
+    const userId = str(p, 'userId');
+    const password = str(p, 'password');
+    if (password.length < 6) throw new Reject('invalid_payload', 'كلمة السر لازم تكون 6 خانات أو أكثر');
+    const u = await mustGet(ctx, 'user', userId);
+    requireTask(ctx.user, u.kind === 'student' ? 'editStudent' : 'users');
+    if (u.kind === 'admin' && ctx.user.kind !== 'admin') throw new Reject('permission_denied', 'بس المدير بيغيّر كلمة سر مدير');
+    if (userId === ctx.user.id) throw new Reject('rule_violation', 'كلمة سرك بتتغيّر من مدير ثاني');
+    return {
+      writes: [{ path: ctx.path('user', userId), mode: 'merge', data: { passwordResetAt: ctx.serverTime } }],
+      after: [{ kind: 'resetPassword', uid: userId, password }],
+      log: [{ opType: 'permission', entity: 'user', recordId: userId, recordLabel: u.name as string, changes: [{ field: 'كلمة السر', old: '—', new: 'كلمة سر مؤقتة جديدة' }] }],
     };
   },
 };

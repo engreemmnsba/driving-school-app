@@ -34,7 +34,8 @@ export const examBook: Handler = {
     // With theory lessons switched off (Settings), there is no theory minimum.
     const theoryOn = family === 'theory' ? await boolSetting(ctx, 'theoryLessonsEnabled', true) : true;
     const min = (family === 'theory' ? (theoryOn ? price.minTheoryBeforeExam : 0) : price.minPracticalBeforeExam) as number | undefined;
-    if (min && lessons < min && !(ctx.user.kind === 'admin' && p.override === true)) {
+    const overridden = !!min && lessons < min;
+    if (overridden && !(ctx.user.kind === 'admin' && p.override === true)) {
       throw new Reject('rule_violation', `لسا ${min - lessons} دروس للحد الأدنى (${min})`);
     }
     const fee = type === 'theory' ? 0 : ((type === 'practical' ? price.practicalExamFee : price.theoryRetakeFee) as number);
@@ -64,7 +65,11 @@ export const examBook: Handler = {
     });
     return {
       writes,
-      log: [{ opType: 'create', entity: 'exam', recordId: examId, recordLabel: `حجز اختبار ${TYPE_LABEL[type]} لـ${enr.studentName as string} · ${scheduledDate}${fee ? ` · ${shekel(fee)}` : ''}`, changes: [] }],
+      log: [{
+        opType: 'create', entity: 'exam', recordId: examId, recordLabel: `حجز اختبار ${TYPE_LABEL[type]} لـ${enr.studentName as string} · ${scheduledDate}${fee ? ` · ${shekel(fee)}` : ''}`,
+        // A15: booking below the minimum lessons is an Admin override and is logged as such.
+        changes: overridden ? [{ field: 'الحد الأدنى للدروس', old: `${lessons} من ${min}`, new: 'تجاوز من المدير' }] : [],
+      }],
       assigned: { type, attempt, fee },
     };
   },
@@ -151,8 +156,10 @@ export const enrollmentWithdraw: Handler = {
     if (!reason) throw new Reject('invalid_payload', 'سبب الانسحاب مطلوب');
     const enr = await mustGet(ctx, 'enrollment', enrollmentId);
     if (enr.stage === 'graduated' || enr.stage === 'withdrawn') throw new Reject('rule_violation', 'الرخصة خالصة من قبل');
+    // Only from theory/practical (docs/03): a student who passed is graduated, not withdrawn.
+    if (enr.stage === 'passed') throw new Reject('rule_violation', 'الطالب ناجح · بيتخرّج مش بينسحب');
     const exams = await ctx.tx.query(ctx.col('exam'), { enrollmentId });
-    if (exams.some((e) => e.result === 'pending')) throw new Reject('rule_violation', 'في اختبار محجوز · لازمه نتيجة أو تأجيل أول');
+    if (exams.some((e) => e.result === 'pending')) throw new Reject('rule_violation', 'في اختبار محجوز · لازمه نتيجة أول');
     return {
       writes: [{ path: ctx.path('enrollment', enrollmentId), mode: 'merge', data: { stage: 'withdrawn', withdrawnOn: ctx.today, withdrawReason: reason } }],
       log: [{ opType: 'archive', entity: 'enrollment', recordId: enrollmentId, recordLabel: `انسحاب ${enr.studentName as string}`, changes: [{ field: 'المرحلة', old: enr.stage, new: 'منسحب' }], reason }],
@@ -173,7 +180,8 @@ export const enrollmentAdd: Handler = {
     const carId = str(p, 'carId');
     const businessDate = date(p, 'businessDate');
     const st = await mustGet(ctx, 'student', studentId);
-    await mustGet(ctx, 'license_type', licenseTypeId);
+    const lt = await mustGet(ctx, 'license_type', licenseTypeId);
+    if (lt.active === false) throw new Reject('rule_violation', 'نوع الرخصة موقوف');
     await mustGet(ctx, 'car', carId);
     const existing = await ctx.tx.query(ctx.col('enrollment'), { studentId, licenseTypeId });
     if (existing.some((e) => e.stage !== 'graduated' && e.stage !== 'withdrawn')) throw new Reject('rule_violation', 'عنده هالرخصة شغّالة');

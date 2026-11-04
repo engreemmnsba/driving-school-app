@@ -28,7 +28,8 @@ class Outbox {
           type: type,
           payloadJson: jsonEncode(payload),
           deviceSeq: seq,
-          deviceTime: _clock().toIso8601String(),
+          // UTC with its "Z", so the server reads the same moment (a bare local time was read as UTC).
+          deviceTime: _clock().toUtc().toIso8601String(),
           userId: session.userId,
         ));
     return id;

@@ -9,12 +9,30 @@ Built and shipped by **Reem Mansour** (freelance, Gaza) for a real driving schoo
 <img alt="Dart 3.10" src="https://img.shields.io/badge/Dart-3.10-0175C2?logo=dart">
 <img alt="Firebase" src="https://img.shields.io/badge/Firebase-Functions%20·%20Firestore%20·%20Auth%20·%20Hosting-FFCA28?logo=firebase">
 <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-Node%2022-3178C6?logo=typescript">
-<img alt="Tests" src="https://img.shields.io/badge/tests-57%20server%20·%20rules%20·%20app-2ea44f">
+<img alt="Tests" src="https://img.shields.io/badge/tests-89%20server%20·%20rules%20·%20app%20·%20UI-2ea44f">
 </p>
 
 > **العربي باختصار:** نظام كامل لإدارة مدرسة تعليم قيادة (الطلاب، الدروس، الامتحانات، الدفعات، الصناديق، الرواتب، الصلاحيات، التقارير). بيشتغل بدون إنترنت: كل عملية بتنحفظ على الجهاز أولاً وبتتزامن مع السيرفر لما يرجع النت. تطبيق Android + نسخة ويب (PWA) للآيفون، وكل الواجهات بالعربي.
 
 ---
+
+## Screenshots
+
+Phone size (390×844), from a UI test run with Playwright on the local emulator with demo data.
+
+| Admin home | Student file after a discount | Receipt |
+|---|---|---|
+| <img src="docs/screenshots/01-admin-home.png" width="230" alt="Admin home: cars now, needs you, today's page"> | <img src="docs/screenshots/10-discount-saved.png" width="230" alt="Student file: balance, payments and discount"> | <img src="docs/screenshots/05-receipt.png" width="230" alt="Payment receipt before sending"> |
+
+| Instructor: lesson running | Second lesson blocked | Student's own page |
+|---|---|---|
+| <img src="docs/screenshots/25-instructor-home.png" width="230" alt="Instructor home with students of his car"> | <img src="docs/screenshots/28-instructor-second-lesson-blocked.png" width="230" alt="A second lesson waits until the running one ends"> | <img src="docs/screenshots/32-student-home-full.png" width="230" alt="Student home: balance, lessons, fees"> |
+
+| Offline: payment waiting | Back online: synced | Day close |
+|---|---|---|
+| <img src="docs/screenshots/40-offline-pending.png" width="230" alt="Offline chip with one waiting change"> | <img src="docs/screenshots/41-back-online-synced.png" width="230" alt="Synced after the network came back"> | <img src="docs/screenshots/24-day-closed.png" width="230" alt="Day closed after counting the cash"> |
+
+More in [`docs/screenshots/`](docs/screenshots): registration, exam booking and postponement, car editing, student fees and exam results.
 
 ## What it does
 
@@ -23,9 +41,9 @@ Built and shipped by **Reem Mansour** (freelance, Gaza) for a real driving schoo
 | **Students** | Register with license type and car, track theory/practical stage, profile with full statement, graduate and archive |
 | **Lessons** | One tap to log a lesson; a timer in the card; one running lesson per instructor; undo = reversal, never delete |
 | **Exams** | Booking creates the student charge and the ministry expense in one step; result only from the exam date; postpone (never cancel) with a reason |
-| **Money** | Payments with printable PDF receipts, discounts, expenses, transfers between accounts, **blind daily cash count** (the counter doesn't see the expected amount until they submit) |
+| **Money** | Payments with printable PDF receipts, discounts with per-user limits, expenses, transfers between accounts, daily cash count with reasons for differences, overdue debts in red |
 | **Staff** | Instructors, cars, monthly payroll with bonuses/deductions/advances, past months frozen |
-| **Permissions** | Plain-language task checklist per user with automatic dependencies, enforced on the server; per-user allowed cash accounts |
+| **Permissions** | Plain-language task checklist per user with automatic dependencies, enforced on the server; per-user allowed cash accounts; Admin password reset |
 | **Oversight** | Activity log ("who changed what from A to B"), notifications, reports, month lock, CSV/Excel export |
 | **Roles** | Admin, staff (accountant/secretary templates), instructor home, student home — each sees only their own data |
 
@@ -44,6 +62,7 @@ Built and shipped by **Reem Mansour** (freelance, Gaza) for a real driving schoo
 ```
 
 - **Offline-first.** The UI never waits for the network. It reads only from the local SQLite database (Drift). Firestore is the server, not the device cache.
+- **Late entries keep their day.** An entry made offline keeps the day and time it was made on the device, even when it syncs the next morning; the server flags it for the Admin.
 - **Every write is an operation.** A local write is queued in an outbox with a client-generated UUIDv7. A single Cloud Function (`applyOpsFn`) validates it and applies it inside a transaction. Re-sending the same op is harmless (idempotent by op id).
 - **Events, not edits.** Lessons, payments, charges, discounts, expenses, exam bookings and the activity log are append-only. A correction is a reversal event, so the money history can always be rebuilt.
 - **Pull by cursor, scoped by role.** Devices pull changes per collection from a cursor. Instructors and students get scoped queries, so data a user may not see never reaches their phone.
@@ -102,7 +121,7 @@ export const HANDLERS: Record<string, Handler> = {
 Handlers run against a `Store` interface. In production it is Firestore in a transaction; in tests it is an in-memory store. So the business rules are unit-tested without the emulator:
 
 ```bash
-cd functions && npm ci && npm test     # 57 tests, ~2 s
+cd functions && npm ci && npm test     # 89 tests, ~2 s
 ```
 
 ### 3. Money colours mean one thing everywhere
@@ -161,6 +180,7 @@ To deploy to your own project: run `flutterfire configure` (this replaces the pl
 | Server rules | `cd functions && npm test` | every op handler: permissions, locks, money maths, payroll, exams |
 | Security rules | `cd functions && npm run test:rules` | who can read what in Firestore, per role and per school |
 | App | `cd app && flutter test` | sync engine (push/pull/retry), domain rules, money, permissions, screens |
+| UI (manual run) | Playwright against the emulator | admin, instructor and student flows at phone size, offline then back online |
 
 ## Stack
 

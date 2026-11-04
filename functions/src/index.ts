@@ -26,6 +26,9 @@ async function afterCommit(a: AfterCommit): Promise<void> {
     await auth.setCustomUserClaims(a.uid, a.claims);
   } else if (a.kind === 'setClaims') {
     await auth.setCustomUserClaims(a.uid, a.claims);
+  } else if (a.kind === 'resetPassword') {
+    await auth.updateUser(a.uid, { password: a.password });
+    await auth.revokeRefreshTokens(a.uid);
   } else if (a.kind === 'setDisabled') {
     await auth.updateUser(a.uid, { disabled: a.disabled });
     if (a.disabled) await auth.revokeRefreshTokens(a.uid);

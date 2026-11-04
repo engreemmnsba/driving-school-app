@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar">
 <head>
   <!-- Replaced by the value of `flutter build --base-href` (default "/"). -->
   <base href="$FLUTTER_BASE_HREF">
@@ -72,9 +72,19 @@
     </svg>
   </div>
   <p class="sp-text">جاري التحميل…</p>
+  <button id="sp-retry" type="button" hidden
+          style="font:inherit;font-size:14px;padding:10px 18px;border-radius:12px;border:1px solid var(--sp-muted);background:transparent;color:var(--sp-ink)">
+    النت ضعيف · إعادة المحاولة
+  </button>
 </div>
 <script>
+  // Weak connection: never leave the loading screen without a way out.
+  var spSlow = setTimeout(function () {
+    var b = document.getElementById('sp-retry');
+    if (b) { b.hidden = false; b.onclick = function () { location.reload(); }; }
+  }, 20000);
   window.addEventListener('flutter-first-frame', function () {
+    clearTimeout(spSlow);
     var s = document.getElementById('splash');
     if (!s) return;
     s.classList.add('sp-hide');

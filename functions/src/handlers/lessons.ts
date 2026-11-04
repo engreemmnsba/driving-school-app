@@ -1,6 +1,6 @@
 import { requireTask } from '../core/permissions.js';
 import { Reject } from '../core/types.js';
-import { bool, boolSetting, date, mustGet, optStr, priceAt, readSummary, shekel, str, summaryPath, type Handler, type Write } from '../core/context.js';
+import { bool, boolSetting, date, numSetting, mustGet, optStr, priceAt, readSummary, shekel, str, summaryPath, type Handler, type Write } from '../core/context.js';
 
 /** Logs a lesson. The server assigns the final number; practical lessons are charged at the price effective on businessDate. */
 export const lessonLog: Handler = {
@@ -16,18 +16,42 @@ export const lessonLog: Handler = {
     const employeeId = str(p, 'employeeId');
     const startedAt = str(p, 'startedAt');
     const businessDate = date(p, 'businessDate');
-    const withoutDriving = type === 'practical' && bool(p, 'withoutDriving');
+    // "Without driving" only exists when the school turned it on (A25, default off).
+    const withoutDriving = type === 'practical' && bool(p, 'withoutDriving') && (await boolSetting(ctx, 'withoutDrivingEnabled', false));
 
     const enr = await mustGet(ctx, 'enrollment', enrollmentId);
     if (['graduated', 'withdrawn', 'passed'].includes(enr.stage as string)) throw new Reject('rule_violation', 'الطالب خلص أو انسحب من هالرخصة');
     const carId = enr.carId as string;
 
-    // Instructors may only log on their own cars.
+    // Practical lessons start after the theory exam when the license says so (on by default).
+    // With theory lessons switched off the theory part is the exam only, so the same rule applies.
+    if (type === 'practical' && enr.stage === 'theory') {
+      const price = await priceAt(ctx, enr.licenseTypeId as string, businessDate);
+      if (price.practicalAfterTheory !== false) throw new Reject('rule_violation', 'الطالب لسا بمرحلة النظري · الدروس العملي بتبلّش بعد ما ينجح بالنظري');
+    }
+
+    // Instructors may only log under their own name, on a car they were on that day.
     if (ctx.user.kind === 'instructor') {
-      const own = (ctx.user as unknown as { employeeId?: string }).employeeId;
-      if (own && own !== employeeId) throw new Reject('permission_denied', 'الدرس بيتسجّل باسمك بس');
+      let own = (ctx.user as unknown as { employeeId?: string }).employeeId;
+      if (!own) own = (await ctx.tx.query(ctx.col('employee'), { userId: ctx.user.id }))[0]?.id as string | undefined;
+      if (own !== employeeId) throw new Reject('permission_denied', 'الدرس بيتسجّل باسمك بس');
       const links = await ctx.tx.query(ctx.col('car_instructor'), { carId, employeeId });
-      if (!links.some((l) => !l.to)) throw new Reject('permission_denied', 'هالسيارة مش إلك');
+      // A link that ended today still covers a lesson given today before the change (offline phones).
+      const onCar = links.some((l) => (l.from === undefined || (l.from as string) <= businessDate) && (!l.to || (l.to as string) >= businessDate));
+      if (!onCar) throw new Reject('permission_denied', 'هالسيارة مش إلك');
+    }
+    const emp = await mustGet(ctx, 'employee', employeeId);
+    if (emp.role !== undefined && emp.role !== 'instructor') throw new Reject('rule_violation', 'الدرس لازم يكون باسم مدرب');
+
+    // One running practical lesson per instructor when the instructor logs it live from the phone
+    // (theory classes can be held together; staff entering several lessons later are not limited).
+    if (type === 'practical' && ctx.user.kind === 'instructor') {
+      const minutes = await numSetting(ctx, 'lessonDurationMin', 45);
+      const start = Date.parse(startedAt);
+      if (!Number.isFinite(start)) throw new Reject('invalid_payload', 'وقت بداية الدرس غلط');
+      const sameDay = await ctx.tx.query(ctx.col('lesson'), { employeeId, businessDate });
+      const clash = sameDay.find((l) => l.id !== lessonId && l.type === 'practical' && !l.archived && Math.abs(Date.parse(l.startedAt as string) - start) < minutes * 60_000);
+      if (clash) throw new Reject('rule_violation', 'في درس عملي شغّال لهالمدرب بنفس الوقت');
     }
 
     const existing = await ctx.tx.query(ctx.col('lesson'), { enrollmentId, type });
@@ -79,7 +103,12 @@ export const lessonArchive: Handler = {
     date(p, 'businessDate');
     const lesson = await mustGet(ctx, 'lesson', lessonId);
     if (lesson.archived === true) throw new Reject('rule_violation', 'الدرس ملغي من قبل');
-    const own = lesson.createdBy === ctx.user.id && lesson.businessDate === ctx.today;
+    // The lesson's own month decides (the op's date is today): a locked month stays as it is.
+    const lock = await ctx.tx.get(ctx.path('month_lock', (lesson.businessDate as string).substring(0, 7)));
+    if (lock && lock.locked !== false) throw new Reject('month_locked', 'الشهر مثبّت · التصحيح بيصير بالشهر المفتوح');
+    const enr = await mustGet(ctx, 'enrollment', lesson.enrollmentId as string);
+    if (['graduated', 'withdrawn'].includes(enr.stage as string)) throw new Reject('rule_violation', 'حساب الطالب مقفل · ما بينلغى درس بعد التخرج أو الانسحاب');
+    const own = lesson.createdBy === ctx.user.id && lesson.businessDate === ctx.deviceDay;
     if (!own) requireTask(ctx.user, 'editLesson');
     else requireTask(ctx.user, 'lesson');
 

@@ -11,6 +11,13 @@ const FEE_LABELS: Record<(typeof FEES)[number], string> = {
 };
 
 /** New price version for a license type, effective from a date (old charges never change). */
+/** Latest start date first; on the same day the one saved last wins (a same-day correction). */
+export function newestPriceFirst(a: Record<string, unknown>, b: Record<string, unknown>): number {
+  const fa = a.effectiveFrom as string, fb = b.effectiveFrom as string;
+  if (fa !== fb) return fa < fb ? 1 : -1;
+  return ((b.serverSeq as number) ?? 0) - ((a.serverSeq as number) ?? 0);
+}
+
 export const licensePriceSet: Handler = {
   creates: ['priceId'],
   async run(ctx) {
@@ -33,9 +40,15 @@ export const licensePriceSet: Handler = {
     }
     data.practicalAfterTheory = p.practicalAfterTheory !== false;
 
-    // Previous version (for the "from A to B" log sentence).
     const all = await ctx.tx.query(ctx.col('license_price'), { licenseTypeId });
-    const prev = all.sort((a, b) => ((a.effectiveFrom as string) < (b.effectiveFrom as string) ? 1 : -1))[0];
+    // A19: new prices apply from today (or a later day). Only a license's very first prices may start earlier.
+    if (all.length > 0 && effectiveFrom < ctx.deviceDay) throw new Reject('rule_violation', 'السعر الجديد بيبدأ من اليوم أو بعده · الدروس القديمة بتضل على سعرها');
+    const lock = await ctx.tx.get(ctx.path('month_lock', effectiveFrom.substring(0, 7)));
+    if (lock && lock.locked !== false) throw new Reject('month_locked', 'الشهر مثبّت');
+    // Previous version (for the "from A to B" log sentence): the price in force on that day.
+    const prev = all
+      .filter((r) => (r.effectiveFrom as string) <= effectiveFrom)
+      .sort(newestPriceFirst)[0] ?? [...all].sort(newestPriceFirst)[0];
     const changes: LogChange[] = [];
     for (const k of FEES) {
       const oldV = prev ? (prev[k] as number) : null;

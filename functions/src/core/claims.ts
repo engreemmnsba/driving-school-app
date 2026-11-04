@@ -36,7 +36,7 @@ export const TASK_LABEL: Record<string, string> = {
 
 /** Ready-made jobs (canvas Permissions). Must match app/lib/core/domain/permissions.dart `jobTemplates`. */
 export const JOB_TASKS: Record<string, string[]> = {
-  accountant: ['students', 'seeMoney', 'addPay', 'addExp', 'closeDay', 'cashbook', 'log'],
+  accountant: ['students', 'seeMoney', 'addPay', 'addExp', 'closeDay', 'cashbook', 'log', 'backdate'],
   secretary: ['students', 'addStudent', 'editStudent', 'exam', 'seeMoney', 'addPay'],
   instructor: ['students', 'lesson'],
   manager: Object.keys(TASK_LABEL),

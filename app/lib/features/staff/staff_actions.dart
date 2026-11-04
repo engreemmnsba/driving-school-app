@@ -169,6 +169,32 @@ class AddCar {
   }
 }
 
+/// Rename / plate / gearbox, or stop the car (only when no active student is on it).
+class EditCar {
+  EditCar(this.db, this.outbox);
+  final AppDatabase db;
+  final Outbox outbox;
+
+  Future<void> call({required CarRow car, String? name, String? plate, String? gearbox, bool? active}) async {
+    final n = name?.trim();
+    if (n != null && n.isEmpty) throw const ActionError('اسم السيارة مطلوب');
+    if (n != null && n != car.name) {
+      final same = await (db.select(db.cars)..where((t) => t.name.equals(n) & t.active.equals(true) & t.id.equals(car.id).not())).get();
+      if (same.isNotEmpty) throw const ActionError('في سيارة بنفس الاسم');
+    }
+    final p = plate?.trim();
+    await db.transaction(() async {
+      await (db.update(db.cars)..where((t) => t.id.equals(car.id))).write(CarsCompanion(
+            name: n == null ? const Value.absent() : Value(n),
+            plate: plate == null ? const Value.absent() : Value(p!.isEmpty ? null : p),
+            gearbox: gearbox == null ? const Value.absent() : Value(gearbox),
+            active: active == null ? const Value.absent() : Value(active),
+          ));
+      await outbox.enqueue('car.edit', {'carId': car.id, 'name': ?n, if (plate != null) 'plate': p!.isEmpty ? null : p, 'gearbox': ?gearbox, 'active': ?active});
+    });
+  }
+}
+
 /// On = the instructor drives this car from today; off = the link ends today (history kept).
 class ToggleCarInstructor {
   ToggleCarInstructor(this.db, this.outbox);
@@ -237,7 +263,7 @@ class CreateUser {
             'discountMax': effectiveJob == 'manager' ? null : 0,
             'closeMode': effectiveJob == 'manager' ? 'full' : 'blind',
             'logScope': effectiveJob == 'manager' ? 'all' : 'own',
-            'backdateDays': 0,
+            'backdateDays': effectiveJob == 'accountant' ? 2 : 0, // A5: accountant up to 2 days back
           };
     final cleanPhone = phone?.trim().isEmpty ?? true ? null : phone!.trim();
     await db.transaction(() async {
@@ -311,6 +337,19 @@ class SetUserStatus {
       }
       await outbox.enqueue('user.status', {'userId': user.id, 'active': active, 'reason': ?reason}, opId: opId);
     });
+  }
+}
+
+/// Admin-side password reset (A11): a new temporary password, shown once / sent on WhatsApp.
+/// The server sets it and signs the person out everywhere. Returns the password.
+class ResetPassword {
+  ResetPassword(this.outbox);
+  final Outbox outbox;
+
+  Future<String> call({required String userId}) async {
+    final password = tempPassword();
+    await outbox.enqueue('user.resetPassword', {'userId': userId, 'password': password});
+    return password;
   }
 }
 
@@ -399,17 +438,21 @@ class StaffActions {
         addItem = AddPayrollItem(db, outbox, userName),
         paySalary = PaySalary(db, outbox, userName),
         addCar = AddCar(db, outbox),
+        editCar = EditCar(db, outbox),
         toggleInstructor = ToggleCarInstructor(db, outbox),
         createUser = CreateUser(db, outbox),
         setStatus = SetUserStatus(db, outbox),
+        resetPassword = ResetPassword(outbox),
         savePermissions = SavePermissions(db, outbox);
 
   final StaffQueries queries;
   final AddPayrollItem addItem;
   final PaySalary paySalary;
   final AddCar addCar;
+  final EditCar editCar;
   final ToggleCarInstructor toggleInstructor;
   final CreateUser createUser;
   final SetUserStatus setStatus;
+  final ResetPassword resetPassword;
   final SavePermissions savePermissions;
 }

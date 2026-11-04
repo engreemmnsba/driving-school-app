@@ -94,7 +94,7 @@ class SettingsQueries {
       if (!includeStopped && !t.active) continue;
       final price = await (db.select(db.licensePrices)
             ..where((p) => p.licenseTypeId.equals(t.id) & p.effectiveFrom.isSmallerOrEqualValue(d) & p.syncState.equals('rejected').not())
-            ..orderBy([(p) => OrderingTerm.desc(p.effectiveFrom)])
+            ..orderBy([(p) => OrderingTerm.desc(p.effectiveFrom), (p) => OrderingTerm.desc(p.at)])
             ..limit(1))
           .getSingleOrNull();
       out.add(LicenseOverview(type: t, price: price));

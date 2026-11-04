@@ -43,8 +43,18 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
+  /// A saved account picked from the list: its ID is used to sign in but never shown in full
+  /// (shared office computers — A35). Typing in the ID field drops the pick.
+  SavedAccount? _picked;
+
+  /// "9••••••01": first digit and last two only.
+  static String masked(String id) => id.length < 4 ? '•••' : '${id.substring(0, 1)}${'•' * (id.length - 3)}${id.substring(id.length - 2)}';
+
   void _pick(SavedAccount a) {
     setState(() {
+      _picked = a;
+      // The real ID goes in the field (so the phone's password manager keeps the right login),
+      // shown as dots while it's a picked account.
       _id.text = a.nationalId;
       _error = null;
     });
@@ -131,10 +141,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         Padding(
                           padding: const EdgeInsetsDirectional.only(bottom: 6),
                           child: Material(
-                            color: _id.text == a.nationalId ? t.tonalBg : t.card,
+                            color: _picked?.nationalId == a.nationalId ? t.tonalBg : t.card,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(Gap.radiusSmall),
-                              side: BorderSide(color: _id.text == a.nationalId ? t.primary : t.border),
+                              side: BorderSide(color: _picked?.nationalId == a.nationalId ? t.primary : t.border),
                             ),
                             child: InkWell(
                               key: Key('saved_${a.nationalId}'),
@@ -151,8 +161,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                      Text(a.name.isEmpty ? a.nationalId : a.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                                      Text(a.nationalId, textDirection: TextDirection.ltr, style: TextStyle(fontSize: 12, color: t.textSecondary)),
+                                      Text(a.name.isEmpty ? masked(a.nationalId) : a.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                                      Text(masked(a.nationalId), textDirection: TextDirection.ltr, style: TextStyle(fontSize: 12, color: t.textSecondary)),
                                     ]),
                                   ),
                                   IconButton(
@@ -173,6 +183,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextField(
                       key: const Key('nationalId'),
                       controller: _id,
+                      obscureText: _picked != null,
+                      // Typing replaces a picked account: start again from an empty field.
+                      onChanged: (v) {
+                        if (_picked != null) {
+                          setState(() => _picked = null);
+                          _id.text = '';
+                        }
+                      },
                       keyboardType: TextInputType.number,
                       textInputAction: TextInputAction.next,
                       autofillHints: const [AutofillHints.username],

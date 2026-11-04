@@ -57,9 +57,12 @@ export const expenseReverse: Handler = {
     const reason = optStr(p, 'reason');
     date(p, 'businessDate');
     const e = await mustGet(ctx, 'expense', expenseId);
-    const own = e.createdBy === ctx.user.id && e.businessDate === ctx.today;
+    const own = e.createdBy === ctx.user.id && e.businessDate === ctx.deviceDay;
     requireTask(ctx.user, own ? 'addExp' : 'editExp');
     if (e.reversed === true) throw new Reject('rule_violation', 'المصروف ملغي من قبل');
+    // The money goes back on the expense's own day: that month must still be open.
+    const lock = await ctx.tx.get(ctx.path('month_lock', (e.businessDate as string).substring(0, 7)));
+    if (lock && lock.locked !== false) throw new Reject('month_locked', 'الشهر مثبّت · التصحيح بيصير بالشهر المفتوح');
     return {
       writes: [
         { path: ctx.path('expense', expenseId), mode: 'merge', data: { reversed: true } },

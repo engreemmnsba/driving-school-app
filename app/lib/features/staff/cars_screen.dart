@@ -92,6 +92,13 @@ class _CarsScreenState extends State<CarsScreen> {
                                 Text([?c.car.plate, c.gearLabel, '${c.students} طالب'].join(' · '), style: TextStyle(fontSize: 12, color: t.textSecondary)),
                               ]),
                             ),
+                            if (app.user.can('settings'))
+                              IconButton(
+                                tooltip: 'تعديل السيارة',
+                                color: t.textSecondary,
+                                icon: const Icon(Icons.edit_outlined, size: 20),
+                                onPressed: () => staffSheet<void>(context, _AddCarSheet(edit: c)),
+                              ),
                             if (app.user.can('reports'))
                               AppButton('التقرير', height: 40, kind: AppButtonKind.outline, onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CarReportScreen(carId: c.car.id)))),
                           ]),
@@ -162,17 +169,39 @@ class _InstructorChip extends StatelessWidget {
 }
 
 class _AddCarSheet extends StatefulWidget {
-  const _AddCarSheet();
+  const _AddCarSheet({this.edit});
+
+  /// Set → the sheet edits this car (and can stop it) instead of adding one.
+  final CarView? edit;
 
   @override
   State<_AddCarSheet> createState() => _AddCarSheetState();
 }
 
 class _AddCarSheetState extends State<_AddCarSheet> {
-  final _name = TextEditingController();
-  final _plate = TextEditingController();
-  String _gear = 'manual';
+  late final _name = TextEditingController(text: widget.edit?.car.name ?? '');
+  late final _plate = TextEditingController(text: widget.edit?.car.plate ?? '');
+  late String _gear = widget.edit?.car.gearbox ?? 'manual';
   bool _busy = false;
+
+  Future<void> _stop() async {
+    final c = widget.edit!;
+    final app = AppScope.of(context);
+    setState(() => _busy = true);
+    try {
+      await app.staff.editCar(car: c.car, active: false);
+      app.syncSoon();
+      if (!mounted) return;
+      final nav = Navigator.of(context);
+      nav.pop();
+      if (nav.context.mounted) showUndoSnack(nav.context, 'انوقفت ${c.car.name} · تاريخها محفوظ');
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        showErrorSnack(context, '$e');
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -185,12 +214,19 @@ class _AddCarSheetState extends State<_AddCarSheet> {
     final app = AppScope.of(context);
     setState(() => _busy = true);
     try {
-      await app.staff.addCar(name: _name.text, plate: _plate.text, gearbox: _gear);
+      final c = widget.edit;
+      if (c == null) {
+        await app.staff.addCar(name: _name.text, plate: _plate.text, gearbox: _gear);
+      } else {
+        await app.staff.editCar(car: c.car, name: _name.text, plate: _plate.text, gearbox: _gear);
+      }
       app.syncSoon();
       if (!mounted) return;
       final nav = Navigator.of(context);
       nav.pop();
-      if (nav.context.mounted) showUndoSnack(nav.context, 'انضافت ${_name.text.trim()} · المدربين بينحطّوا عليها من الشيبس تحتها');
+      if (nav.context.mounted) {
+        showUndoSnack(nav.context, c == null ? 'انضافت ${_name.text.trim()} · المدربين بينحطّوا عليها من الشيبس تحتها' : 'انحفظت ${_name.text.trim()}');
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _busy = false);
@@ -204,7 +240,7 @@ class _AddCarSheetState extends State<_AddCarSheet> {
     return Padding(
       padding: const EdgeInsetsDirectional.fromSTEB(16, 0, 16, 20),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Text('سيارة جديدة', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+        Text(widget.edit == null ? 'سيارة جديدة' : 'تعديل ${widget.edit!.car.name}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
         const SizedBox(height: 10),
         TextField(controller: _name, autofocus: true, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'الاسم (مثلًا: سيارة 4)')),
         const SizedBox(height: 8),
@@ -215,6 +251,13 @@ class _AddCarSheetState extends State<_AddCarSheet> {
         ChoiceRow<String>(options: const ['manual', 'auto'], selected: _gear, label: (g) => g == 'auto' ? 'أوتوماتيك' : 'عادي', onSelect: (g) => setState(() => _gear = g)),
         const SizedBox(height: 14),
         AppButton('حفظ السيارة', height: 56, expand: true, busy: _busy, onPressed: _name.text.trim().isEmpty ? null : _save),
+        if (widget.edit != null) ...[
+          const SizedBox(height: 8),
+          if (widget.edit!.students > 0)
+            Text('عليها ${widget.edit!.students} طلاب شغّالين · ما بتنوقف هلأ', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: context.tokens.textSecondary))
+          else
+            AppButton('إيقاف السيارة', height: 48, expand: true, kind: AppButtonKind.outline, onPressed: _busy ? null : _stop),
+        ],
       ]),
     );
   }

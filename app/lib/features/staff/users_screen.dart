@@ -47,6 +47,44 @@ class _UsersScreenState extends State<UsersScreen> {
     }
   }
 
+  /// New temporary password: confirm, queue it, then WhatsApp it (or show it once).
+  Future<void> _resetPassword(UserView u) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text('كلمة سر جديدة لـ${u.user.name}'),
+        content: const Text('بتنعمل كلمة سر مؤقتة، والحساب بيطلع من كل الأجهزة لما توصل للسيرفر.', style: TextStyle(height: 1.6)),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(d).pop(false), child: const Text('إلغاء')),
+          TextButton(onPressed: () => Navigator.of(d).pop(true), child: const Text('كلمة سر جديدة')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final app = AppScope.of(context);
+    try {
+      final password = await app.staff.resetPassword(userId: u.user.id);
+      app.syncSoon();
+      final text = Uri.encodeComponent('أهلين ${u.user.name}، كلمة سرك الجديدة بتطبيق المدرسة:\nرقم الهوية: ${u.user.nationalId}\nكلمة السر المؤقتة: $password');
+      final phone = waPhone(u.user.phone ?? '');
+      final sent = await launchUrl(Uri.parse(phone == null ? 'https://wa.me/?text=$text' : 'https://wa.me/$phone?text=$text'), mode: LaunchMode.externalApplication);
+      if (!mounted) return;
+      if (sent) showUndoSnack(context, 'انعملت كلمة سر جديدة لـ${u.user.name} · بيطلع من كل الأجهزة لما توصل للسيرفر');
+      if (!sent) {
+        await showDialog<void>(
+          context: context,
+          builder: (d) => AlertDialog(
+            title: Text('كلمة سر ${u.user.name}'),
+            content: Text('واتساب ما انفتح · كلمة السر المؤقتة (بتنعرض هالمرة بس):\n\n$password', style: const TextStyle(height: 1.7)),
+            actions: [TextButton(onPressed: () => Navigator.of(d).pop(), child: const Text('تمام'))],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) showErrorSnack(context, '$e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
@@ -105,6 +143,14 @@ class _UsersScreenState extends State<UsersScreen> {
                                 Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PermissionsScreen(userId: u.user.id)));
                               }),
                               const SizedBox(width: 6),
+                            ],
+                            if (u.user.id != app.user.uid && u.active && (u.user.kind != 'admin' || app.user.isAdmin)) ...[
+                              IconButton(
+                                tooltip: 'كلمة سر جديدة',
+                                color: t.textSecondary,
+                                icon: const Icon(Icons.key_rounded, size: 20),
+                                onPressed: () => _resetPassword(u),
+                              ),
                             ],
                             if (u.user.id != app.user.uid)
                               _StatusButton(

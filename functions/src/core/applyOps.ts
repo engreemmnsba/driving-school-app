@@ -8,7 +8,7 @@ import { enrollmentAdd, enrollmentGraduate, enrollmentWithdraw, examBook, examPo
 import { dayClose, dayReopen, expenseAdd, expenseReverse, moneyMove } from '../handlers/treasury.js';
 import { accountAdd, accountEdit, licensePriceSet, licenseTypeAdd, licenseTypeEdit, settingSet } from '../handlers/settings.js';
 import { monthLock, monthUnlock } from '../handlers/reports.js';
-import { carAdd, carInstructor, employeeSalary, payrollItem, salaryPay, userCreate, userPermissions, userStatus } from '../handlers/staff.js';
+import { carAdd, carEdit, carInstructor, employeeSalary, payrollItem, salaryPay, userCreate, userPermissions, userResetPassword, userStatus } from '../handlers/staff.js';
 
 export const HANDLERS: Record<string, Handler> = {
   'student.register': studentRegister,
@@ -37,6 +37,8 @@ export const HANDLERS: Record<string, Handler> = {
   'car.instructor': carInstructor,
   'user.create': userCreate,
   'user.status': userStatus,
+  'user.resetPassword': userResetPassword,
+  'car.edit': carEdit,
   'user.permissions': userPermissions,
   'month.lock': monthLock,
   'month.unlock': monthUnlock,
@@ -96,6 +98,8 @@ async function applyTx(env: ApplyEnv, authUserId: string, op: Op, after: AfterCo
   const opPath = `${school}/ops/${op.opId}`;
   const tz = env.timeZone ?? 'Asia/Hebron';
   const handler = HANDLERS[op.type];
+  // Set when the op does not belong to a known user of this school: then nothing is written there.
+  let foreign = false;
 
   try {
     return await env.store.runTransaction(async (tx) => {
@@ -106,6 +110,15 @@ async function applyTx(env: ApplyEnv, authUserId: string, op: Op, after: AfterCo
       const now = env.now();
       const serverTime = now.toISOString();
       const today = businessToday(now, tz);
+      // Offline-first: judge "today only" rules on the day the op was made on the device.
+      // A device day in the future is ignored (wrong clock); an older one is accepted but flagged.
+      // Older phones send the device's local time without a zone ("2026-11-03T22:30:00.000"):
+      // its date part already is the school day. With a zone ("…Z" / "+02:00") convert it.
+      const dt = typeof op.deviceTime === 'string' ? op.deviceTime : '';
+      const zoned = /(Z|[+-]\d\d:?\d\d)$/.test(dt);
+      const madeAt = Date.parse(dt);
+      const madeDay = !Number.isFinite(madeAt) ? today : zoned ? businessToday(new Date(madeAt), tz) : dt.substring(0, 10);
+      const deviceDay = madeDay < today ? madeDay : today;
       const ctxBase = {
         path: (c: string, id: string) => `${school}/${c}/${id}`,
         col: (c: string) => `${school}/${c}`,
@@ -114,10 +127,16 @@ async function applyTx(env: ApplyEnv, authUserId: string, op: Op, after: AfterCo
       // 2. Auth & user.
       if (op.userId !== authUserId) throw new Reject('permission_denied', 'العملية مش باسم المستخدم الحالي');
       const user = (await tx.get(ctxBase.path('user', op.userId))) as unknown as UserDoc | undefined;
-      if (!user) throw new Reject('permission_denied', 'المستخدم مش معروف');
-      if (user.schoolId !== op.schoolId) throw new Reject('wrong_school', 'مدرسة غلط');
+      if (!user) {
+        foreign = true;
+        throw new Reject('permission_denied', 'المستخدم مش معروف');
+      }
+      if (user.schoolId !== op.schoolId) {
+        foreign = true;
+        throw new Reject('wrong_school', 'مدرسة غلط');
+      }
       // A stopped user's token can live up to an hour after the stop: refuse their writes right away.
-      if ((user as unknown as { status?: string }).status !== undefined && (user as unknown as { status?: string }).status !== 'active') throw new Reject('permission_denied', 'الحساب موقوف');
+      if ((user as unknown as { status?: string }).status !== undefined && (user as unknown as { status?: string }).status !== 'active') throw new Reject('user_disabled', 'الحساب موقوف');
       if (!handler) throw new Reject('unknown_op_type', `نوع عملية مش معروف: ${op.type}`);
 
       // 3. Date rules (locks, back-dating).
@@ -128,7 +147,7 @@ async function applyTx(env: ApplyEnv, authUserId: string, op: Op, after: AfterCo
         if (bd > today) throw new Reject('rule_violation', 'ما بيصير تاريخ بالمستقبل');
         const lock = await tx.get(ctxBase.path('month_lock', bd.substring(0, 7)));
         if (lock && lock.locked !== false) throw new Reject('month_locked', 'الشهر مثبّت · التصحيح بيصير بالشهر المفتوح');
-        const back = daysBetween(bd, today);
+        const back = daysBetween(bd, deviceDay);
         if (back > 0 && user.kind !== 'admin') {
           const allowed = user.permissions.tasks.backdate ? user.permissions.backdateDays ?? 0 : 0;
           if (allowed !== 'any_open_day' && back > allowed) throw new Reject('backdate_not_allowed', 'ما في صلاحية تسجيل بهالتاريخ القديم');
@@ -136,11 +155,21 @@ async function applyTx(env: ApplyEnv, authUserId: string, op: Op, after: AfterCo
         dayClose = await tx.get(ctxBase.path('day_close', bd));
         if (dayClose && dayClose.state === 'closed') flags.push('lateAfterClose');
       }
+      if (deviceDay < today) flags.push('lateSync');
 
       // 4. Handler (reads only) → writes.
-      const ctx: Ctx = { tx, op, user, serverTime, today, ...ctxBase };
+      const ctx: Ctx = { tx, op, user, serverTime, today, deviceDay, ...ctxBase };
       const out = await handler.run(ctx);
       after.length = 0; // transaction retries re-run the handler
+
+      // 4b. Records this op creates must be new: a reused id would silently overwrite history.
+      const createdIds = new Set((handler.creates ?? []).map((k) => op.payload[k]).filter((v): v is string => typeof v === 'string'));
+      for (const w of out.writes) {
+        if (w.mode !== 'set') continue;
+        const id = w.path.substring(w.path.lastIndexOf('/') + 1);
+        if (!createdIds.has(id)) continue;
+        if (await tx.get(w.path)) throw new Reject('rule_violation', 'الرقم مستعمل لسجل ثاني · ما بينكتب فوقه');
+      }
 
       // 5. Account balances follow every treasury movement (read before any write).
       const deltas = new Map<string, number>();
@@ -165,7 +194,7 @@ async function applyTx(env: ApplyEnv, authUserId: string, op: Op, after: AfterCo
       // 6. Stamp: serverSeq from the school head counter.
       const head = await tx.get(`${school}/meta/head`);
       const serverSeq = ((head?.serverSeq as number) ?? 0) + 1;
-      const stamp = { schoolId: op.schoolId, serverSeq, serverTime, deviceTime: op.deviceTime, opId: op.opId };
+      const stamp = { schoolId: op.schoolId, serverSeq, serverTime, deviceTime: op.deviceTime, opId: op.opId, ...(flags.includes('lateSync') ? { lateSync: true } : {}) };
       for (const w of out.writes) {
         const data = w.mode === 'set' ? { ...w.data, ...stamp, createdBy: op.userId, lateAfterClose: flags.includes('lateAfterClose') } : { ...w.data, ...stamp };
         if (w.mode === 'set') tx.set(w.path, data);
@@ -193,6 +222,8 @@ async function applyTx(env: ApplyEnv, authUserId: string, op: Op, after: AfterCo
   } catch (e) {
     if (!(e instanceof Reject)) throw e; // infrastructure error → client retries the same op later
     const result: OpResult = { opId: op.opId, status: 'rejected', reason: e.reason, message: e.message };
+    // An op aimed at another school (or by an unknown user) leaves nothing behind in that school.
+    if (foreign) return result;
     // Remember the rejection (idempotent) and the ids this op would have created.
     await env.store.runTransaction(async (tx) => {
       const done = await tx.get(opPath);

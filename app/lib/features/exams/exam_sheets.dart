@@ -255,7 +255,14 @@ class _Postpone extends StatefulWidget {
 }
 
 class _PostponeState extends State<_Postpone> {
-  late String _date = businessDateOf(DateTime.parse(widget.exam.scheduledDate).add(const Duration(days: 7)));
+  /// The new date is after the old one and never before today (the server refuses a past date).
+  String get _earliest {
+    final dayAfter = businessDateOf(DateTime.parse(widget.exam.scheduledDate).add(const Duration(days: 1)));
+    final today = todayStr();
+    return dayAfter.compareTo(today) > 0 ? dayAfter : today;
+  }
+
+  late String _date = businessDateOf(DateTime.parse(_earliest).add(const Duration(days: 6)));
   String _reason = 'ministry';
   final _details = TextEditingController();
   bool _busy = false;
@@ -288,7 +295,7 @@ class _PostponeState extends State<_Postpone> {
   Widget build(BuildContext context) {
     final t = context.tokens;
     final x = widget.exam;
-    final valid = _date.compareTo(x.scheduledDate) > 0;
+    final valid = _date.compareTo(x.scheduledDate) > 0 && _date.compareTo(todayStr()) >= 0;
     return SingleChildScrollView(
       padding: const EdgeInsetsDirectional.fromSTEB(16, 0, 16, 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -303,7 +310,7 @@ class _PostponeState extends State<_Postpone> {
             Expanded(child: Text('الموعد الجديد: ${dateLabel(_date)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
             TextButton(
               onPressed: () async {
-                final d = await _pickDate(context, _date, after: businessDateOf(DateTime.parse(x.scheduledDate).add(const Duration(days: 1))));
+                final d = await _pickDate(context, _date, after: _earliest);
                 if (d != null) setState(() => _date = d);
               },
               child: const Text('تغيير'),

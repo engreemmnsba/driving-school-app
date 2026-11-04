@@ -2,13 +2,26 @@
 // Strategy: answer from the saved copy at once (fast start, works offline) and refresh the copy
 // in the background; a new release is picked up on the next open.
 // Never touches Firebase traffic (Auth, Firestore, Functions) — the app syncs that itself.
-const CACHE = 'ds-app-v1';
+const CACHE = 'ds-app-v2';
 const SHELL = ['./', 'index.html', 'flutter_bootstrap.js', 'main.dart.js', 'manifest.json', 'icons/Icon-192.png'];
+// Saved too, so the first screen has its text, icons and logo without waiting for the network.
+// A missing name here is skipped (it never blocks the install).
+const ASSETS = [
+  'assets/FontManifest.json', 'assets/AssetManifest.bin.json', 'assets/AssetManifest.json',
+  'assets/fonts/MaterialIcons-Regular.otf',
+  'assets/assets/fonts/IBMPlexSansArabic-Regular.ttf', 'assets/assets/fonts/IBMPlexSansArabic-Medium.ttf',
+  'assets/assets/fonts/IBMPlexSansArabic-SemiBold.ttf', 'assets/assets/fonts/IBMPlexSansArabic-Bold.ttf',
+  'assets/assets/images/logo.png', 'sqlite3.wasm', 'drift_worker.js',
+];
 // Flutter engine + Firebase JS SDK come from Google's CDN with versioned URLs: safe to keep.
-const CDN = ['https://www.gstatic.com/flutter-canvaskit/', 'https://www.gstatic.com/firebasejs/'];
+// fonts.gstatic.com = the fallback fonts Flutter fetches for any character the app font lacks;
+// without them saved, text can stay blank on a slow or missing connection.
+const CDN = ['https://www.gstatic.com/flutter-canvaskit/', 'https://www.gstatic.com/firebasejs/', 'https://fonts.gstatic.com/'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(SHELL).then(() => Promise.allSettled(ASSETS.map((a) => c.add(a)))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

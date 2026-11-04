@@ -169,10 +169,12 @@ class AuthService {
   /// permissions apply from the next open. If the server says the login is no longer valid,
   /// [onRevoked] is called. First open without internet → [OfflineFirstOpen].
   /// Throws [LoginException] if the account is not set up for a school.
-  Future<AppUser> loadUser(User user, {void Function(String message)? onRevoked}) async {
+  /// [onChanged]: the refreshed account differs from the saved copy (new cars, permissions…),
+  /// so the caller can reopen the session with it right away instead of on the next open.
+  Future<AppUser> loadUser(User user, {void Function(String message)? onRevoked, void Function()? onChanged}) async {
     final cached = await _readCache(user.uid);
     if (cached != null) {
-      unawaited(_refresh(user, onRevoked));
+      unawaited(_refresh(user, cached, onRevoked, onChanged));
       return cached;
     }
     try {
@@ -183,9 +185,12 @@ class AuthService {
     }
   }
 
-  Future<void> _refresh(User user, void Function(String message)? onRevoked) async {
+  Future<void> _refresh(User user, AppUser cached, void Function(String message)? onRevoked, void Function()? onChanged) async {
     try {
       await _fetch(user);
+      // Compare with what was saved (only a complete read is saved), so a half-offline read never loops.
+      final saved = await _readCache(user.uid);
+      if (saved != null && jsonEncode(saved.toJson()) != jsonEncode(cached.toJson())) onChanged?.call();
     } on LoginException catch (e) {
       await _clearCache(user.uid);
       onRevoked?.call(e.message);

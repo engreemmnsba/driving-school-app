@@ -141,7 +141,7 @@ String taskLabel(String key) {
 
 /// Ready-made jobs (canvas Permissions). MUST match functions/src/core/claims.ts JOB_TASKS.
 const Map<String, (String, List<String>)> jobTemplates = {
-  'accountant': ('محاسب', ['students', 'seeMoney', 'addPay', 'addExp', 'closeDay', 'cashbook', 'log']),
+  'accountant': ('محاسب', ['students', 'seeMoney', 'addPay', 'addExp', 'closeDay', 'cashbook', 'log', 'backdate']), // A5: up to 2 days back
   'secretary': ('سكرتاريا', ['students', 'addStudent', 'editStudent', 'exam', 'seeMoney', 'addPay']),
   'instructor': ('مدرب', ['students', 'lesson']),
   'manager': ('مدير', []), // every task

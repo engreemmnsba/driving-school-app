@@ -14,7 +14,9 @@ export type AfterCommit =
   /** permissions / cars changed: new token claims (the app reloads them on the next sync). */
   | { kind: 'setClaims'; uid: string; claims: Record<string, unknown> }
   /** disabled → signed out everywhere (refresh tokens revoked); enabled → can log in again. */
-  | { kind: 'setDisabled'; uid: string; disabled: boolean };
+  | { kind: 'setDisabled'; uid: string; disabled: boolean }
+  /** Admin-only password reset (A11): new temporary password, signed out everywhere. */
+  | { kind: 'resetPassword'; uid: string; password: string };
 
 export interface HandlerOutput {
   writes: Write[];
@@ -31,6 +33,12 @@ export interface Ctx {
   serverTime: string;
   /** today in the school timezone */
   today: BusinessDate;
+  /**
+   * The day the op was made on the device (school timezone), never after [today].
+   * An op made offline and synced later keeps the day it was really made, so "today only" rules
+   * (back-dating, own same-day undo) are judged on that day; the server flags it `lateSync`.
+   */
+  deviceDay: BusinessDate;
   /** `schools/{schoolId}/{collection}/{id}` */
   path(collection: string, id: string): string;
   col(collection: string): string;
@@ -82,7 +90,8 @@ export async function priceAt(ctx: Ctx, licenseTypeId: string, on: BusinessDate)
   const rows = await ctx.tx.query(ctx.col('license_price'), { licenseTypeId });
   const eligible = rows
     .filter((r) => typeof r.effectiveFrom === 'string' && (r.effectiveFrom as string) <= on)
-    .sort((a, b) => ((a.effectiveFrom as string) < (b.effectiveFrom as string) ? 1 : -1));
+    // Latest start first; same start day → the one saved last (a same-day correction).
+    .sort((a, b) => (a.effectiveFrom !== b.effectiveFrom ? ((a.effectiveFrom as string) < (b.effectiveFrom as string) ? 1 : -1) : ((b.serverSeq as number) ?? 0) - ((a.serverSeq as number) ?? 0)));
   const p = eligible[0];
   if (!p) throw new Reject('rule_violation', 'ما في أسعار لهالرخصة بهالتاريخ · لازم تنحط بالإعدادات');
   return p;
@@ -128,4 +137,9 @@ export function shekel(a: Agorot): string {
 export async function boolSetting(ctx: Ctx, key: string, fallback: boolean): Promise<boolean> {
   const d = await ctx.tx.get(ctx.path('setting', key));
   return typeof d?.value === 'boolean' ? d.value : fallback;
+}
+
+export async function numSetting(ctx: Ctx, key: string, fallback: number): Promise<number> {
+  const d = await ctx.tx.get(ctx.path('setting', key));
+  return typeof d?.value === 'number' ? d.value : fallback;
 }

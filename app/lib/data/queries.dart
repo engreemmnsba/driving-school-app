@@ -72,7 +72,11 @@ class StudentCard {
     this.price,
     this.pendingExam,
     this.theoryLessons = true,
+    this.overdue = false,
   });
+
+  /// A2: owes more than the overdue amount and paid nothing for the overdue days (shown red).
+  final bool overdue;
 
   /// Settings switch "تسجيل الدروس النظري": off → no theory lesson button and no theory minimum.
   final bool theoryLessons;
@@ -110,7 +114,7 @@ class StudentCard {
   int get minForExam => inTheory ? (theoryLessons ? price?.minTheoryBeforeExam ?? 0 : 0) : (price?.minPracticalBeforeExam ?? 0);
 
   /// Reached the minimum lessons for the next exam and nothing is booked (canvas: "حجز اختبار" on the card).
-  bool get readyForExam => inExamStage && pendingExam == null && (stage == 'ready_practical' || (inTheory && !theoryLessons) || (minForExam > 0 && done >= minForExam));
+  bool get readyForExam => inExamStage && pendingExam == null && (stage == 'ready_practical' || (inTheory && !theoryLessons) || (minForExam > 0 ? done >= minForExam : done > 0)); // no minimum set: ready after the first lesson
   bool get passedPractical => stage == 'passed';
   Money get remaining => balance.remaining;
 }
@@ -184,7 +188,7 @@ class Queries {
   Future<LicensePriceRow?> priceOn(String licenseTypeId, String businessDate) async {
     final rows = await (db.select(db.licensePrices)
           ..where((t) => t.licenseTypeId.equals(licenseTypeId) & t.effectiveFrom.isSmallerOrEqualValue(businessDate))
-          ..orderBy([(t) => OrderingTerm.desc(t.effectiveFrom)])
+          ..orderBy([(t) => OrderingTerm.desc(t.effectiveFrom), (t) => OrderingTerm.desc(t.at)]) // same day: the last saved wins (as on the server)
           ..limit(1))
         .get();
     return rows.isEmpty ? null : rows.first;
@@ -229,7 +233,20 @@ class Queries {
           ..orderBy([(t) => OrderingTerm.desc(t.at)])
           ..limit(1))
         .getSingleOrNull();
+    // A2 overdue debt: remaining > overdueAmount and no payment for overdueDays (from registration if none).
+    final balance = await localBalance(db, e.id);
+    final settings = SettingsQueries(db);
+    final lastPay = await (db.select(db.ledgerEntries)
+          ..where((t) => t.enrollmentId.equals(e.id) & t.kind.equals('payment') & t.reversed.equals(false) & t.syncState.equals('rejected').not())
+          ..orderBy([(t) => OrderingTerm.desc(t.businessDate)])
+          ..limit(1))
+        .getSingleOrNull();
+    final since = DateTime.tryParse(lastPay?.businessDate ?? e.registeredOn);
+    final overdue = since != null &&
+        balance.remaining.agorot > await settings.intOf('overdueAmount') &&
+        DateTime.now().difference(since).inDays >= await settings.intOf('overdueDays');
     return StudentCard(
+      overdue: overdue,
       enrollment: e,
       student: student,
       licenseName: lts[e.licenseTypeId] ?? '',
@@ -239,7 +256,7 @@ class Queries {
       plannedTheory: price?.plannedTheoryLessons ?? 0,
       plannedPractical: price?.plannedPracticalLessons ?? 0,
       minPractical: price?.minPracticalBeforeExam ?? 0,
-      balance: await localBalance(db, e.id),
+      balance: balance,
       lastAt: last?.at ?? e.at ?? '',
       price: price,
       theoryLessons: theoryLessons,

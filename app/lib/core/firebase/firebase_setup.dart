@@ -13,11 +13,13 @@ const useEmulator = bool.fromEnvironment('EMULATOR');
 
 Future<void> initFirebase() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  const host = '127.0.0.1';
+  // The Auth emulator must be set before anything touches Auth: Firestore below starts Auth to get a
+  // token, and on the web a saved session would otherwise be refreshed against Google's live servers.
+  if (useEmulator) await FirebaseAuth.instance.useAuthEmulator(host, 9099);
   // Drift is the only local store; Firestore is used only to pull changes (docs/05).
   FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: false);
   if (useEmulator) {
-    const host = '127.0.0.1';
-    await FirebaseAuth.instance.useAuthEmulator(host, 9099);
     FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
     FirebaseFunctions.instanceFor(region: functionsRegion).useFunctionsEmulator(host, 5001);
   }

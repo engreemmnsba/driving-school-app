@@ -71,6 +71,9 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
     setState(() {
       _tasks = after;
       _note = note;
+      // A task turned on with an empty limit would refuse everything: start from the smallest choice.
+      if (after['discount'] == true && _opt.discountMax == 0) _opt = _opt.copyWith(discountMax: () => 5000);
+      if (after['backdate'] == true && _opt.backdateDays == 0) _opt = _opt.copyWith(backdateDays: 1);
     });
     if (note != null) {
       Future<void>.delayed(const Duration(seconds: 4), () {
@@ -86,6 +89,7 @@ class _PermissionsScreenState extends State<PermissionsScreen> {
         if (job == 'manager') {
           _opt = _opt.copyWith(allowedAccounts: () => null, expenseCategories: () => null, discountMax: () => null, closeMode: 'full', logScope: 'all');
         }
+        if (job == 'accountant' && _opt.backdateDays == 0) _opt = _opt.copyWith(backdateDays: 2); // A5
       });
 
   bool get _sameAsJob {

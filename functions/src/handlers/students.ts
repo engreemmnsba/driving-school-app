@@ -25,7 +25,10 @@ export const studentRegister: Handler = {
 
     const dup = await ctx.tx.query(ctx.col('student'), { nationalId });
     if (dup.length > 0) throw new Reject('rule_violation', 'رقم الهوية مسجّل لطالب ثاني · لإضافة رخصة جديدة لنفس الطالب');
-    await mustGet(ctx, 'license_type', licenseTypeId);
+    // One login per national ID (A12): a staff/instructor login on this ID would block the student's login.
+    if ((await ctx.tx.query(ctx.col('user'), { nationalId })).length > 0) throw new Reject('rule_violation', 'رقم الهوية مستعمل لحساب موظف');
+    const lt = await mustGet(ctx, 'license_type', licenseTypeId);
+    if (lt.active === false) throw new Reject('rule_violation', 'نوع الرخصة موقوف');
     await mustGet(ctx, 'car', carId);
     const price = await priceAt(ctx, licenseTypeId, businessDate);
     const fee = price.registrationFee as number;

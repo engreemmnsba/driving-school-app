@@ -89,10 +89,15 @@ class _EmployeeStatementScreenState extends State<EmployeeStatementScreen> {
                         Material(
                           color: t.card,
                           borderRadius: BorderRadius.circular(12),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () => Navigator.of(context).maybePop(),
-                            child: const SizedBox.square(dimension: 44, child: Icon(Icons.arrow_back_rounded, semanticLabel: 'رجوع')),
+                          child: Semantics(
+                            button: true,
+                            label: 'رجوع',
+                            excludeSemantics: true,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => Navigator.of(context).maybePop(),
+                              child: const SizedBox.square(dimension: 44, child: Icon(Icons.arrow_back_rounded)),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 10),

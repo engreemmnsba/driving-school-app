@@ -25,6 +25,8 @@ export const paymentRecord: Handler = {
     const account = await mustGet(ctx, 'treasury_account', accountId);
     if (account.active === false) throw new Reject('rule_violation', 'الصندوق موقوف');
     const studentId = enr.studentId as string;
+    const sameReceipt = await ctx.tx.query(ctx.col('student_ledger'), { receiptNo });
+    if (sameReceipt.some((r) => r.kind === 'payment')) throw new Reject('rule_violation', `رقم الوصل ${receiptNo} مستعمل من قبل`);
     const summary = await readSummary(ctx, enrollmentId, studentId);
 
     return {
@@ -47,7 +49,7 @@ export const paymentReverse: Handler = {
     const paymentId = str(p, 'paymentId');
     const pay = await mustGet(ctx, 'student_ledger', paymentId);
     // The person who recorded it may undo it the same day (Undo snackbar); otherwise editPay is needed.
-    const ownUndo = pay.createdBy === ctx.user.id && pay.businessDate === ctx.today;
+    const ownUndo = pay.createdBy === ctx.user.id && pay.businessDate === ctx.deviceDay;
     if (!ownUndo) requireTask(ctx.user, 'editPay');
     const reversalId = str(p, 'reversalId');
     const movementId = str(p, 'movementId');
@@ -57,6 +59,8 @@ export const paymentReverse: Handler = {
     if (pay.reversed === true) throw new Reject('rule_violation', 'الدفعة مرجّعة من قبل');
 
     const enrollmentId = pay.enrollmentId as string;
+    const enr = await mustGet(ctx, 'enrollment', enrollmentId);
+    if (enr.stage === 'withdrawn') throw new Reject('rule_violation', 'الطالب منسحب · حسابه مجمّد وما في إرجاع');
     const summary = await readSummary(ctx, enrollmentId, pay.studentId as string);
     const amount = pay.amount as number;
     return {
@@ -83,9 +87,21 @@ export const discountGive: Handler = {
     const reason = optStr(p, 'reason');
     const businessDate = date(p, 'businessDate');
     const enr = await mustGet(ctx, 'enrollment', enrollmentId);
+    if (enr.stage === 'withdrawn' || enr.stage === 'graduated') throw new Reject('rule_violation', 'حساب الطالب مقفل · ما بينضاف خصم');
     const summary = await readSummary(ctx, enrollmentId, enr.studentId as string);
-    const max = ctx.user.kind === 'admin' ? null : ctx.user.permissions.discountMax ?? 0;
-    if (max !== null && summary.discounts + amount > max) {
+    // null = no limit (what the permissions screen saves for "بدون حد"); missing = no discount allowed.
+    const limit = ctx.user.permissions.discountMax;
+    const max = ctx.user.kind === 'admin' || limit === null ? null : limit ?? 0;
+    // The limit is per student: discounts on the student's other licenses count too.
+    let given = summary.discounts;
+    if (max !== null) {
+      const others = await ctx.tx.query(ctx.col('enrollment'), { studentId: enr.studentId });
+      for (const o of others) {
+        if (o.id === enrollmentId) continue;
+        given += (await readSummary(ctx, o.id as string, enr.studentId as string)).discounts;
+      }
+    }
+    if (max !== null && given + amount > max) {
       throw new Reject('discount_over_limit', `أقصى خصم مسموح لهالطالب ${shekel(max)}`);
     }
     return {

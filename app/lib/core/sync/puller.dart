@@ -82,7 +82,10 @@ int _i(Map<String, dynamic> d, String k) => ((d[k] ?? 0) as num).toInt();
 bool _b(Map<String, dynamic> d, String k) => d[k] == true;
 Value<String?> _op(Map<String, dynamic> d) => Value(d['opId'] as String?);
 const _synced = Value('synced');
-Value<String?> _at(Map<String, dynamic> d) => Value(d['serverTime'] as String?);
+/// When it happened: the device's time of the op (what the person saw and the receipt printed),
+/// so a record keeps the same time before and after it syncs. Ordering and sync use serverSeq;
+/// money totals use businessDate. Server time only when an old record has no device time.
+Value<String?> _at(Map<String, dynamic> d) => Value((d['deviceTime'] ?? d['serverTime']) as String?);
 
 final Map<String, _Apply> _appliers = {
   // Catalog first, so screens never show an id without its name.

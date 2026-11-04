@@ -177,10 +177,16 @@ class BackHeader extends StatelessWidget {
         Material(
           color: dark ? Colors.white12 : t.card,
           borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => Navigator.of(context).maybePop(),
-            child: SizedBox.square(dimension: 44, child: Icon(Icons.arrow_back_rounded, color: fg, semanticLabel: 'رجوع')),
+          // A labelled button for screen readers (the icon alone isn't announced as one).
+          child: Semantics(
+            button: true,
+            label: 'رجوع',
+            excludeSemantics: true,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => Navigator.of(context).maybePop(),
+              child: SizedBox.square(dimension: 44, child: Icon(Icons.arrow_back_rounded, color: fg)),
+            ),
           ),
         ),
         const SizedBox(width: 10),

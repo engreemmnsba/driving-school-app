@@ -479,7 +479,7 @@ class StaffQueries {
       final total = (await (db.select(db.lessons)..where((t) => t.enrollmentId.equals(en.id) & t.type.equals('practical') & t.archived.equals(false) & _ok(t.syncState))).get()).length;
       final planned = (await (db.select(db.licensePrices)
                 ..where((t) => t.licenseTypeId.equals(en.licenseTypeId))
-                ..orderBy([(t) => OrderingTerm.desc(t.effectiveFrom)])
+                ..orderBy([(t) => OrderingTerm.desc(t.effectiveFrom), (t) => OrderingTerm.desc(t.at)])
                 ..limit(1))
               .getSingleOrNull())
           ?.plannedPracticalLessons;

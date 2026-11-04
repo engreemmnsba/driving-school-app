@@ -60,7 +60,8 @@ class _AddPaymentSheetState extends State<_AddPaymentSheet> {
   Future<void> _load() async {
     final app = AppScope.of(context);
     final all = await app.queries.studentCards();
-    final accounts = await app.queries.accounts();
+    // Only the accounts this person may use (A17) — the server refuses the others.
+    final accounts = (await app.queries.accounts()).where((a) => app.user.canUseAccount(a.id)).toList();
     if (!mounted) return;
     setState(() {
       _all = all;

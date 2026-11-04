@@ -1,3 +1,5 @@
+import 'package:drift/drift.dart' hide Column, Table;
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -108,13 +110,26 @@ class _SignedInState extends State<_SignedIn> {
     try {
       final user = await widget.auth.loadUser(widget.firebaseUser, onRevoked: (msg) {
         widget.onFailed(msg);
-        _signOut();
+        // Forced sign-out (login stopped or changed): never lose changes that are still waiting to send.
+        _signOut(keepUnsent: true);
+      }, onChanged: () {
+        // New cars or permissions arrived: reopen now with them (scoped data re-pulls, see below).
+        if (mounted) _restart();
       });
       final nationalId = SavedAccounts.idFromEmail(widget.firebaseUser.email);
       if (nationalId != null) await SavedAccounts().remember(SavedAccount(nationalId: nationalId, name: user.name));
       final (db, session) = await openSession(user);
+      // Scoped pulls (an instructor's cars, a student's own records) remember how far they got per
+      // collection. When the scope changes, start those collections again so older records of a newly
+      // added car reach the phone too.
+      final scopeKey = '${user.kind}|${[...user.carIds]..sort()}|${user.studentId ?? ''}';
+      if (await db.kvGet('pullScope') != scopeKey) {
+        await (db.delete(db.syncCursors)..where((t) => t.collection.isIn(const ['enrollment', 'lesson', 'exam', 'student_ledger', 'student_summary', 'student']))).go();
+        await db.kvSet('pullScope', scopeKey);
+      }
       final outbox = Outbox(db, session);
       final engine = SyncEngine(
+        online: Connectivity().onConnectivityChanged.map((r) => r.any((c) => c != ConnectivityResult.none)),
         Pusher(db, outbox, FirebaseOpsTransport()),
         Puller(
           db,
@@ -171,10 +186,33 @@ class _SignedInState extends State<_SignedIn> {
     super.dispose();
   }
 
+  /// Closes the open session and opens it again with the refreshed account.
+  Future<void> _restart() async {
+    final engine = _engine;
+    final db = _db;
+    setState(() {
+      _engine = null;
+      _db = null;
+      _user = null;
+      _session = null;
+      _outbox = null;
+      _services = null;
+    });
+    engine?.dispose();
+    await db?.close();
+    if (mounted) await _open();
+  }
+
   /// Wipes this user's local data, then signs out (screens check there is nothing waiting to sync).
-  Future<void> _signOut() async {
+  /// [keepUnsent]: a forced sign-out keeps this user's database when ops are still waiting, so they
+  /// are sent (and, if refused, shown to the Admin) the next time this person signs in on this device.
+  Future<void> _signOut({bool keepUnsent = false}) async {
     try {
-      await _db?.wipeUserData();
+      final db = _db;
+      if (db != null) {
+        final waiting = keepUnsent && (await (db.select(db.outboxOps)..limit(1)).get()).isNotEmpty;
+        if (!waiting) await db.wipeUserData();
+      }
     } catch (_) {
       // Signing out must still work; the data stays in this user's own database file.
     }

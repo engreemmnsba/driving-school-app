@@ -244,7 +244,7 @@ class StudentTile extends StatelessWidget {
                 ),
               ]),
             ),
-            if (app.user.can('seeMoney')) BalanceLabel(c.remaining),
+            if (app.user.can('seeMoney')) BalanceLabel(c.remaining, overdue: c.overdue),
           ]),
         ),
         const SizedBox(height: 10),
@@ -272,11 +272,12 @@ class StudentTile extends StatelessWidget {
   }
 }
 
-/// "₪440 عليه" (amber) · "مسدّد" (green) · "₪50 رصيد إله" (teal).
+/// "₪440 عليه" (amber; red when overdue, A2) · "مسدّد" (green) · "₪50 رصيد إله" (teal).
 class BalanceLabel extends StatelessWidget {
-  const BalanceLabel(this.remaining, {super.key, this.size = 13});
+  const BalanceLabel(this.remaining, {super.key, this.size = 13, this.overdue = false});
   final Money remaining;
   final double size;
+  final bool overdue;
 
   @override
   Widget build(BuildContext context) {
@@ -284,7 +285,8 @@ class BalanceLabel extends StatelessWidget {
     final m = remaining;
     final style = TextStyle(fontSize: size, fontWeight: FontWeight.w700);
     if (m.isPositive) {
-      return Row(mainAxisSize: MainAxisSize.min, children: [MoneyText(m, color: t.debt, style: style), Text(' عليه', style: style.copyWith(color: t.debt))]);
+      final c = overdue ? t.problem : t.debt;
+      return Row(mainAxisSize: MainAxisSize.min, children: [MoneyText(m, color: c, style: style), Text(overdue ? ' عليه · متأخر' : ' عليه', style: style.copyWith(color: c))]);
     }
     if (m.isZero) return Text('مسدّد', style: style.copyWith(color: t.money));
     return Row(mainAxisSize: MainAxisSize.min, children: [MoneyText(m.abs(), color: t.info, style: style), Text(' رصيد إله', style: style.copyWith(color: t.info))]);

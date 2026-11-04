@@ -6,8 +6,11 @@ import '../../core/auth/login_email.dart';
 import '../../core/db/database.dart';
 import '../../core/ui/tokens.dart';
 import '../../core/ui/widgets.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../../core/util/dates.dart';
 import '../../data/queries.dart';
+import '../money/receipt_screen.dart' show waPhone;
 import '../exams/exam_sheets.dart';
 
 /// Canvas: EditStudent — shows exactly what will be written to the activity log before saving.
@@ -49,6 +52,32 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
       _fixed = cards.map((c) => 'السيارة: ${c.carName} · الرخصة: ${c.licenseName}').join('\n');
       _active = cards.where((c) => c.canLesson).toList();
     });
+  }
+
+  /// A11: new temporary password for the student's login (uid = studentId), sent on WhatsApp or shown once.
+  Future<void> _newPassword() async {
+    final app = AppScope.of(context);
+    final o = _orig!;
+    try {
+      final password = await app.staff.resetPassword(userId: o.id);
+      app.syncSoon();
+      final text = Uri.encodeComponent('أهلين ${o.name}، كلمة سرك الجديدة بتطبيق المدرسة:\nرقم الهوية: ${o.nationalId}\nكلمة السر المؤقتة: $password');
+      final phone = waPhone(o.phone ?? '');
+      final sent = await launchUrl(Uri.parse(phone == null ? 'https://wa.me/?text=$text' : 'https://wa.me/$phone?text=$text'), mode: LaunchMode.externalApplication);
+      if (sent && mounted) showUndoSnack(context, 'انعملت كلمة سر جديدة لـ${o.name}');
+      if (!sent && mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (d) => AlertDialog(
+            title: const Text('كلمة السر الجديدة'),
+            content: Text('واتساب ما انفتح · كلمة السر المؤقتة (بتنعرض هالمرة بس):\n\n$password', style: const TextStyle(height: 1.7)),
+            actions: [TextButton(onPressed: () => Navigator.of(d).pop(), child: const Text('تمام'))],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) showErrorSnack(context, '$e');
+    }
   }
 
   @override
@@ -172,6 +201,8 @@ class _EditStudentScreenState extends State<EditStudentScreen> {
                     const Text('سبب التعديل (اختياري)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
                     TextField(controller: _reason, decoration: const InputDecoration(hintText: 'مثلًا: تغيّر رقم الجوال')),
+                    const SizedBox(height: 16),
+                    AppButton('كلمة سر جديدة للطالب', icon: Icons.key_rounded, height: 44, kind: AppButtonKind.outline, onPressed: _newPassword),
                   ]),
                 ),
                 Padding(

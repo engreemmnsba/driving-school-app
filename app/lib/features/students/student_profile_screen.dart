@@ -252,18 +252,23 @@ class _Actions extends StatelessWidget {
     final c = card;
     final minForExam = c.minForExam;
     final examReady = c.readyForExam;
+    // The lesson button gets its own full-width row: "تسجيل نظري 1" doesn't fit a third of a phone.
+    final lesson = c.canLesson && app.user.can('lesson')
+        ? AppButton('تسجيل ${c.nextLessonLabel}', kind: AppButtonKind.accent, icon: Icons.check_rounded, height: 64, expand: true, onPressed: () => logNextLesson(context, c))
+        : null;
     final buttons = <Widget>[
-      if (c.canLesson && app.user.can('lesson'))
-        AppButton('تسجيل ${c.nextLessonLabel}', kind: AppButtonKind.accent, icon: Icons.check_rounded, height: 64, onPressed: () => logNextLesson(context, c)),
       if (app.user.can('addPay')) AppButton('دفعة', kind: AppButtonKind.tonal, icon: Icons.add_rounded, height: 64, onPressed: () => showAddPayment(context, preselect: c)),
       if (app.user.can('exam') && c.canLesson && c.pendingExam == null)
         AppButton('حجز تست', kind: examReady ? AppButtonKind.primary : AppButtonKind.outline, height: 64, onPressed: examReady || app.user.isAdmin ? () => showBookExam(context, c) : null),
     ];
-    if (buttons.isEmpty) return const SizedBox.shrink();
+    if (buttons.isEmpty && lesson == null) return const SizedBox.shrink();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Row(children: [
-        for (final (i, b) in buttons.indexed) ...[if (i > 0) const SizedBox(width: 8), Expanded(child: b)],
-      ]),
+      if (lesson != null) lesson,
+      if (lesson != null && buttons.isNotEmpty) const SizedBox(height: 8),
+      if (buttons.isNotEmpty)
+        Row(children: [
+          for (final (i, b) in buttons.indexed) ...[if (i > 0) const SizedBox(width: 8), Expanded(child: b)],
+        ]),
       if (app.user.can('exam') && !examReady && c.canLesson && c.pendingExam == null && minForExam > c.done) ...[
         const SizedBox(height: 6),
         Text('زر حجز الاختبار ${c.inTheory ? 'النظري' : 'العملي'} بيتفعّل بعد ${minForExam - c.done} دروس (الحد الأدنى $minForExam)',

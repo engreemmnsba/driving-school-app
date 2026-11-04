@@ -22,6 +22,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
   Stream<(StudentHomeData?, String)>? _stream;
 
   static const _purpose = {'lessons': 'دروس', 'registration': 'تسجيل', 'exam': 'اختبار', 'general': 'عام'};
+  static const _chargeLabel = {'registration_fee': 'رسوم التسجيل', 'exam_fee': 'رسوم اختبار العملي', 'retake_fee': 'رسوم إعادة النظري', 'discount': 'خصم'};
+  static const _examType = {'theory': 'النظري', 'theory_retake': 'إعادة النظري', 'practical': 'العملي'};
+  static const _examResult = {'passed': 'نجح ✓', 'failed': 'ما زبط', 'absent': 'غياب', 'pending': 'محجوز'};
 
   @override
   Widget build(BuildContext context) {
@@ -101,6 +104,9 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
           : d.practicalDone >= planned
               ? 'الدروس المخططة خلصت · موعد اختبار العملي من المدرسة'
               : 'اختبار العملي بيتحجز بعد ${planned - d.practicalDone} دروس كمان';
+    } else if (d.lastResult != null && d.lastResult!.type != 'practical' && d.lastResult!.result != 'passed') {
+      banner = 'اختبار النظري ما زبط هالمرة';
+      bannerSub = 'موعد الإعادة بيتحجز من المدرسة';
     } else {
       banner = 'مرحلة النظري';
       bannerSub = 'اختبار النظري بيتحجز لما تخلص دروس النظري';
@@ -172,6 +178,45 @@ class _StudentHomeScreenState extends State<StudentHomeScreen> {
             ]),
           ),
         ),
+      if (d.exams.any((x) => x.result != 'pending')) ...[
+        const SizedBox(height: 10),
+        const Text('اختباراتي', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        for (final x in d.exams.where((x) => x.result != 'pending'))
+          Padding(
+            padding: const EdgeInsetsDirectional.only(bottom: 6),
+            child: Panel(
+              radius: 12,
+              padding: const EdgeInsetsDirectional.symmetric(horizontal: 12, vertical: 9),
+              child: Row(children: [
+                Expanded(child: Text('${_examType[x.type] ?? x.type} · ${friendlyDate(x.scheduledDate)}', style: const TextStyle(fontSize: 13))),
+                Text(_examResult[x.result] ?? x.result,
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: x.result == 'passed' ? t.money : t.textSecondary)),
+              ]),
+            ),
+          ),
+      ],
+      if (d.charges.isNotEmpty) ...[
+        const SizedBox(height: 10),
+        const Text('الرسوم والخصومات', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 2),
+        Text('الدروس العملي محسوبة بالمحسوب فوق', style: TextStyle(fontSize: 12, color: t.textSecondary)),
+        const SizedBox(height: 6),
+        for (final c in d.charges)
+          Padding(
+            padding: const EdgeInsetsDirectional.only(bottom: 6),
+            child: Panel(
+              radius: 12,
+              padding: const EdgeInsetsDirectional.symmetric(horizontal: 12, vertical: 9),
+              child: Row(children: [
+                Expanded(
+                  child: Text([_chargeLabel[c.kind] ?? c.kind, friendlyDate(c.businessDate), if (c.reversed) 'ملغي'].join(' · '), style: const TextStyle(fontSize: 13)),
+                ),
+                MoneyText(Money(c.amount), color: c.kind == 'discount' ? t.info : t.text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ),
+      ],
       const SizedBox(height: 10),
       const Text('الدفعات', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
       const SizedBox(height: 6),
